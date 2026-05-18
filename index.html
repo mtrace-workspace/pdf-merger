@@ -1751,7 +1751,7 @@
     position: fixed;
     inset: 0;
     background: rgba(21,19,15,0.5);
-    z-index: 6000;
+    z-index: 99999;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2265,6 +2265,7 @@ const state = {
   // ビューア内ズーム倍率（CSS transform でPDF表示エリアだけ拡大縮小）
   viewerZoom: 1.0,
 };
+window._appState = state; // デバッグ用
 
 // 配置定数
 const CARD_W = 160;
@@ -2594,9 +2595,18 @@ async function loadFiles(files) {
     const { file, bytes, pdf } = result.value;
     try {
       const id = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      // 同名ファイルが既にあれば番号を付ける
+      let uniqueName = file.name;
+      const baseName = file.name.replace(/(\.[^.]+)$/, '');
+      const ext = file.name.match(/(\.[^.]+)$/)?.[1] || '';
+      let counter = 1;
+      while (state.files.some(f => f.name === uniqueName) || trash.some(t => t.file.name === uniqueName)) {
+        uniqueName = `${baseName}_${counter}${ext}`;
+        counter++;
+      }
       const item = {
         id,
-        name: file.name,
+        name: uniqueName,
         size: file.size,
         lastModified: file.lastModified || Date.now(),
         bytes,
@@ -3089,7 +3099,53 @@ function renderPageMode() {
       label.className = 'group-name-label';
       label.textContent = file.name.replace(/\.[^.]+$/, '');
       label.title = file.name;
-      label.style.pointerEvents = 'none';
+      label.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (label.classList.contains('editing')) return;
+        label.classList.add('editing');
+        const ext = file.name.match(/(\.[^.]+)$/)?.[1] || '';
+        label.contentEditable = 'true';
+        label.textContent = file.name.replace(/\.[^.]+$/, '');
+        label.style.whiteSpace = 'normal';
+        label.style.overflow = 'visible';
+        label.style.textOverflow = 'unset';
+        label.style.maxWidth = '200px';
+        label.style.wordBreak = 'break-all';
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        label.focus();
+        let finished = false;
+        const finish = (commit) => {
+          if (finished) return;
+          finished = true;
+          label.contentEditable = 'false';
+          label.classList.remove('editing');
+          label.style.whiteSpace = '';
+          label.style.overflow = '';
+          label.style.textOverflow = '';
+          label.style.maxWidth = '';
+          label.style.wordBreak = '';
+          const newName = label.textContent.trim();
+          if (commit && newName) {
+            file.name = newName + ext;
+            label.title = file.name;
+          }
+          label.textContent = file.name.replace(/\.[^.]+$/, '');
+          if (commit) scheduleSave();
+        };
+        label.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+          if (e.key === 'Escape') finish(false);
+          e.stopPropagation();
+        }, { once: false });
+        label.addEventListener('blur', () => finish(true), { once: true });
+      });
+      label.addEventListener('mousedown', e => e.stopPropagation());
+      label.addEventListener('pointerdown', e => e.stopPropagation());
       card.appendChild(label);
     }
 
@@ -3143,6 +3199,11 @@ function startGroupNameEdit(labelEl, groupId, fileName) {
   labelEl.classList.add('editing');
   labelEl.contentEditable = 'true';
   labelEl.textContent = currentName;
+  labelEl.style.whiteSpace = 'normal';
+  labelEl.style.overflow = 'visible';
+  labelEl.style.textOverflow = 'unset';
+  labelEl.style.maxWidth = '200px';
+  labelEl.style.wordBreak = 'break-all';
   // 全選択
   const range = document.createRange();
   range.selectNodeContents(labelEl);
@@ -3157,6 +3218,11 @@ function startGroupNameEdit(labelEl, groupId, fileName) {
     finished = true;
     labelEl.contentEditable = 'false';
     labelEl.classList.remove('editing');
+    labelEl.style.whiteSpace = '';
+    labelEl.style.overflow = '';
+    labelEl.style.textOverflow = '';
+    labelEl.style.maxWidth = '';
+    labelEl.style.wordBreak = '';
     if (commit) {
       const newName = labelEl.textContent.trim();
       if (newName && newName !== defaultName) {
@@ -3243,7 +3309,7 @@ function handlePageClick(idx, e) {
   state.lastSelectedPageIdx = idx;
   refreshUI();
   // キーボードショートカット（Delete等）が効くようにフォーカスをbodyへ
-  document.body.focus();
+  setTimeout(() => document.body.focus(), 0);
 }
 
 const pageThumbCache = new Map();
@@ -3844,6 +3910,7 @@ function openGroupExpansion(groupId) {
 
 function closeGroupExpansion() {
   state.expandedGroupId = null;
+  state.annSelectedId = null;
   state.viewerZoom = 1.0;
   fontAnalyzeMode = 'all';
   const existing = document.getElementById('expanded-modal');
@@ -4706,7 +4773,6 @@ function actUngroup() {
 // 削除
 async function actDelete() {
   if (state.selectedPageIdxs.size === 0) return;
-  // 選択中のページが属する束のメンバー全員を削除対象に含める
   const targetIdxs = new Set(state.selectedPageIdxs);
   const targetGroupIds = new Set();
   state.selectedPageIdxs.forEach(idx => {
@@ -4724,7 +4790,7 @@ async function actDelete() {
   } else {
     msg = `選択した ${totalCount} ページを削除しますか？`;
   }
-  const ok = await confirmDelete(msg, 'ページを削除');
+  const ok = confirm(msg);
   if (!ok) return;
 
   // 削除対象のファイルをゴミ箱へ（そのファイルの全ページが削除対象の場合のみfileを除去）
@@ -5295,8 +5361,10 @@ document.addEventListener('keydown', e => {
   }
   // Delete: 削除
   if (e.key === 'Delete' || e.key === 'Backspace') {
-
-    if (state.expandedGroupId) { // ビューア表示中
+    // 印鑑登録モーダルが開いているときは無効
+    if (document.getElementById('stamp-register-modal')) return;
+    const viewerVisible = state.expandedGroupId && document.getElementById('expanded-modal');
+    if (viewerVisible) { // ビューア表示中
       if (state.annSelectedId) return; // 注釈選択中はページ削除しない
       e.preventDefault();
       deleteCurrentViewerPage();
@@ -8345,14 +8413,16 @@ function openStampModal() {
   // 画像アップロード
   pendingStampImage = null;
   const uploadZone = modal.querySelector('#reg-upload-zone');
-  const fileInput = modal.querySelector('#reg-stamp-file');
-  uploadZone.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', e => {
+  const stampFileInput = modal.querySelector('#reg-stamp-file');
+  uploadZone.addEventListener('click', e => { e.stopPropagation(); stampFileInput.click(); });
+  stampFileInput.addEventListener('change', e => {
+    e.stopPropagation();
     if (e.target.files[0]) handleImage(e.target.files[0]);
   });
-  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.style.borderColor = 'var(--accent)'; });
-  uploadZone.addEventListener('dragleave', () => { uploadZone.style.borderColor = 'var(--line)'; });
+  uploadZone.addEventListener('dragover', e => { e.stopPropagation(); e.preventDefault(); uploadZone.style.borderColor = 'var(--accent)'; });
+  uploadZone.addEventListener('dragleave', e => { e.stopPropagation(); uploadZone.style.borderColor = 'var(--line)'; });
   uploadZone.addEventListener('drop', e => {
+    e.stopPropagation();
     e.preventDefault();
     uploadZone.style.borderColor = 'var(--line)';
     if (e.dataTransfer.files[0]) handleImage(e.dataTransfer.files[0]);
@@ -8373,10 +8443,17 @@ function openStampModal() {
   }
 
   // キャンセル
-  modal.querySelector('#reg-cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#reg-cancel').addEventListener('click', () => {
+    modal.remove();
+    if (!document.getElementById('expanded-modal')) state.expandedGroupId = null;
+    setTimeout(() => document.body.focus(), 0);
+  });
   modal.addEventListener('click', e => {
     if (e.target === modal) modal.remove();
   });
+  // モーダル内へのドロップがページ追加に繋がらないようブロック
+  modal.addEventListener('dragover', e => e.stopPropagation());
+  modal.addEventListener('drop', e => e.stopPropagation());
 
   // 保存
   modal.querySelector('#reg-save').addEventListener('click', async () => {
@@ -8420,6 +8497,11 @@ function openStampModal() {
       b.classList.toggle('active', b.dataset.tool === 'stamp');
     });
     modal.remove();
+    // ビューア外（ボード画面）に戻っている場合はexpandedGroupIdをリセット
+    if (!document.getElementById('expanded-modal')) {
+      state.expandedGroupId = null;
+    }
+    setTimeout(() => document.body.focus(), 0);
   });
 }
 
