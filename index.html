@@ -2265,7 +2265,6 @@ const state = {
   // ビューア内ズーム倍率（CSS transform でPDF表示エリアだけ拡大縮小）
   viewerZoom: 1.0,
 };
-window._appState = state; // デバッグ用
 
 // 配置定数
 const CARD_W = 160;
@@ -2878,6 +2877,10 @@ function applyThumbToCard(fileId, pageNum, rotation, dataUrl, w, h) {
 
 // ── UI rendering ─────────────────────────────────────
 function refreshUI() {
+  // pageOrderに存在しないfileエントリを除去
+  const usedFileIds = new Set(state.pageOrder.map(p => p.fileId));
+  state.files = state.files.filter(f => usedFileIds.has(f.id));
+
   if (state.files.length === 0) {
     emptyState.style.display = 'flex';
     workspace.style.display = 'none';
@@ -4738,7 +4741,6 @@ function actGroup() {
 // グループ解除
 function actUngroup() {
   if (state.selectedPageIdxs.size === 0) return;
-  // 選択中のページが属する束のIDを集める
   const targetGroupIds = new Set();
   state.selectedPageIdxs.forEach(idx => {
     const entry = state.pageOrder[idx];
@@ -4748,26 +4750,47 @@ function actUngroup() {
     alert('選択ページはどれもグループに属していません');
     return;
   }
-  // 各束のメンバー全員を解除し、横一列に並べる
   let count = 0;
   targetGroupIds.forEach(gid => {
     const members = state.pageOrder.filter(p => p.groupId === gid);
     if (members.length === 0) return;
-    // 元の束の位置を起点に、1段5枚で並べ直す
     const baseX = members[0].x || 40;
     const baseY = members[0].y || 40;
     const SPACING_X = CARD_W + 24;
     const SPACING_Y = CARD_H + 24;
     const COLS = 5;
+    // 元ファイルを取得
+    const origFileId = members[0].fileId;
+    const origFile = state.files.find(f => f.id === origFileId);
     members.forEach((p, i) => {
+      // ページごとに独立したfileエントリを作成
+      if (origFile && members.length > 1) {
+        const newId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '_' + i;
+        const baseName = origFile.name.replace(/(\.[^.]+)$/, '');
+        const ext = origFile.name.match(/(\.[^.]+)$/)?.[1] || '.pdf';
+        const newFile = {
+          ...origFile,
+          id: newId,
+          name: `${baseName}_p${p.pageNum}${ext}`,
+          pageCount: 1,
+          _viewerPdf: origFile._viewerPdf,
+        };
+        state.files.push(newFile);
+        p.fileId = newId;
+      }
       p.groupId = null;
       p.x = baseX + (i % COLS) * SPACING_X;
       p.y = baseY + Math.floor(i / COLS) * SPACING_Y;
       count++;
     });
+    // 元ファイルはpageOrderから参照されなくなるので削除
+    if (origFile && members.length > 1) {
+      state.files = state.files.filter(f => f.id !== origFileId);
+    }
   });
   state.selectedPageIdxs.clear();
   refreshUI();
+  scheduleSave();
 }
 
 // 削除
@@ -4790,7 +4813,7 @@ async function actDelete() {
   } else {
     msg = `選択した ${totalCount} ページを削除しますか？`;
   }
-  const ok = confirm(msg);
+  const ok = await confirmDelete(msg, 'ページを削除');
   if (!ok) return;
 
   // 削除対象のファイルをゴミ箱へ（そのファイルの全ページが削除対象の場合のみfileを除去）
