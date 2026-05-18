@@ -2,7 +2,7 @@
 <!-- saved from url=(0050)file:///C:/Users/nakayama/Downloads/index_251.html -->
 <html lang="ja"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>M Trace. — PDF Workspace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com/">
 <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
@@ -223,11 +223,14 @@
   .empty-state-main {
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    min-height: calc(100vh - 80px);
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
     text-align: center;
     padding: 0;
     background-color: #1a1a1a;
-    position: relative;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
   }
   .empty-state-main::before {
     display: none;
@@ -279,8 +282,8 @@
     color: rgba(245, 243, 238, 0.7);
   }
 
-  /* 元のヘッダーはトップでは隠す */
-  body.empty-state-on header { display: none; }
+  /* 元のヘッダーはトップでも表示する */
+  body.empty-state-on { overflow: hidden; }
   body.empty-state-on main { padding: 0; margin: 0; }
 
   /* タグラベル：左上 */
@@ -299,8 +302,9 @@
   /* メインカード（参考画像通りの構図） */
   /* メインカード：参考画像をそのまま表示 */
   .empty-state-inner {
-    width: 600px;
-    max-width: 90vw;
+    width: min(360px, 38vw);
+    max-width: 38vw;
+    max-height: 48vh;
     aspect-ratio: 600 / 441;
     background-image: var(--logo-full-url);
     background-size: contain;
@@ -311,6 +315,7 @@
     box-shadow: none;
     padding: 0;
     position: relative;
+    flex-shrink: 0;
     cursor: pointer;
     transition: transform 0.2s ease, opacity 0.2s ease;
   }
@@ -561,7 +566,7 @@
   /* アップロードCTAボタン */
   .upload-cta {
     position: absolute;
-    bottom: -14px;
+    bottom: -5px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -575,6 +580,8 @@
     transition: all 0.25s ease;
     white-space: nowrap;
     z-index: 20;
+    width: max-content;
+    max-width: 90%;
   }
   .empty-state-inner:hover .upload-cta {
     background: rgba(255, 255, 255, 0.09);
@@ -602,6 +609,76 @@
     text-transform: uppercase;
     color: rgba(212, 208, 200, 0.4);
   }
+
+  /* アップロードモーダル */
+  .upload-modal-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.75);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .upload-modal {
+    background: #1e1e1e;
+    border: 1px solid rgba(255,255,255,0.12);
+    width: min(480px, 85vw);
+    padding: 32px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .upload-modal-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: rgba(245,243,238,0.6);
+    margin-bottom: 8px;
+  }
+  .upload-modal-btn {
+    display: flex; align-items: center; gap: 16px;
+    padding: 20px 24px;
+    border: 1px solid rgba(212,208,200,0.2);
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+    transition: all 0.2s;
+    color: rgba(245,243,238,0.85);
+    font-family: 'JetBrains Mono', monospace;
+    text-align: left;
+  }
+  .upload-modal-btn:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(212,208,200,0.5);
+  }
+  .upload-modal-btn-icon {
+    font-size: 24px; flex-shrink: 0; width: 32px; text-align: center;
+  }
+  .upload-modal-btn-text { display: flex; flex-direction: column; gap: 4px; }
+  .upload-modal-btn-label {
+    font-size: 12px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase;
+  }
+  .upload-modal-btn-desc {
+    font-size: 10px; color: rgba(212,208,200,0.45); letter-spacing: 0.1em;
+  }
+  .upload-modal-close {
+    align-self: flex-end; background: none; border: none;
+    color: rgba(212,208,200,0.4); cursor: pointer; font-size: 18px; padding: 4px 8px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .upload-modal-close:hover { color: rgba(245,243,238,0.8); }
+  .upload-modal-drop-area {
+    border: 1px dashed rgba(212,208,200,0.3);
+    padding: 40px 24px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: rgba(212,208,200,0.45);
+    transition: all 0.2s;
+    display: none;
+  }
+  .upload-modal-drop-area.active {
+    border-color: rgba(212,208,200,0.7);
+    background: rgba(255,255,255,0.05);
+    color: rgba(245,243,238,0.8);
+  }
+  .upload-modal-drop-area.show { display: block; }
   .hint {
     font-family: 'JetBrains Mono', monospace;
     font-size: 9px;
@@ -1788,7 +1865,7 @@
   }
 </style>
 </head>
-<body class="">
+<body class="" tabindex="-1">
 
 <!-- Password Gate -->
 <div id="pw-gate" style="position: fixed; inset: 0px; background-color: rgb(26, 26, 26); display: none;">
@@ -1959,7 +2036,7 @@
 
 /* ── ゴミ箱 ── */
 .trash-widget {
-  position: fixed; bottom: 24px; right: 24px; z-index: 900;
+  position: fixed; bottom: min(24px, 3vh); right: min(24px, 2vw); z-index: 900;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
 }
 .trash-btn {
@@ -2055,7 +2132,7 @@
     <div class="top-tag-label">PDF WORKSPACE / MTRC-001</div>
 
     <!-- メインカード（プレート全体クリックでファイル選択） -->
-    <div class="empty-state-inner" onclick="document.getElementById(&#39;file-input&#39;).click()">
+    <div class="empty-state-inner" onclick="showUploadModal()">
       <div class="upload-cta">
         <div class="upload-cta-icon">＋</div>
         <div class="upload-cta-label">ファイルをアップロード</div>
@@ -2071,7 +2148,7 @@
   </div>
 
   <!-- Workspace -->
-  <div id="workspace" style="display: block;">
+  <div id="workspace" style="display: none;">
     <div class="section-title">
       <h2 id="section-heading">PAGE MAP</h2>
       <span class="count" id="section-count"></span>
@@ -3165,6 +3242,8 @@ function handlePageClick(idx, e) {
   }
   state.lastSelectedPageIdx = idx;
   refreshUI();
+  // キーボードショートカット（Delete等）が効くようにフォーカスをbodyへ
+  document.body.focus();
 }
 
 const pageThumbCache = new Map();
@@ -3983,18 +4062,8 @@ function renderExpansionModal() {
   overlayCanvas.id = 'viewer-ann-overlay';
   pageWrap.appendChild(overlayCanvas);
 
-  // overlayCanvas上でのドラッグで横スクロール（mousedownと並行して動作）
+  // overlayCanvas上でのドラッグパンはannOnMouseDownの空白クリック処理で対応
   let overlayPanState = null;
-  overlayCanvas.addEventListener('pointerdown', e => {
-    overlayPanState = { startX: e.clientX + main.scrollLeft, startY: e.clientY + main.scrollTop };
-  });
-  overlayCanvas.addEventListener('pointermove', e => {
-    if (!overlayPanState || e.buttons === 0) { overlayPanState = null; return; }
-    main.scrollLeft = overlayPanState.startX - e.clientX;
-    main.scrollTop = overlayPanState.startY - e.clientY;
-  });
-  overlayCanvas.addEventListener('pointerup', () => { overlayPanState = null; });
-  overlayCanvas.addEventListener('pointercancel', () => { overlayPanState = null; });
   // 中央ページの右クリック → 現在表示中ページに対するメニュー
   pageWrap.addEventListener('contextmenu', e => {
     showViewerContextMenu(e, state.viewerMemberIdx);
@@ -4005,9 +4074,11 @@ function renderExpansionModal() {
   // viewer-mainの余白でドラッグしてパン（上下左右）
   let panState = null;
   main.addEventListener('pointerdown', e => {
-    if (e.target.closest('button, select, input')) return;
-    // overlayCanvas上はannOnMouseDownに任せる
+    if (e.target.closest('button, select, input, textarea')) return;
     if (e.target.id === 'viewer-ann-overlay') return;
+    if (e.target.closest('.ann-text-input')) return;
+    if (fontAnalyzeMode !== 'all') return;
+    if (e.target.id === 'font-analyze-overlay' || e.target.closest('#font-analyze-overlay')) return;
     panState = { startX: e.clientX + main.scrollLeft, startY: e.clientY + main.scrollTop };
     main.setPointerCapture(e.pointerId);
   });
@@ -5292,9 +5363,15 @@ function setupAnnOverlay(overlay, entry) {
   newOverlay.className = 'ann-overlay tool-' + state.tool;
   overlay.parentNode.replaceChild(newOverlay, overlay);
 
-  newOverlay.addEventListener('mousedown', e => annOnMouseDown(e, newOverlay, entry));
+  newOverlay.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    annOnMouseDown(e, newOverlay, entry);
+  });
   newOverlay.addEventListener('mousemove', e => annOnMouseMove(e, newOverlay, entry));
-  newOverlay.addEventListener('mouseup', e => annOnMouseUp(e, newOverlay, entry));
+  newOverlay.addEventListener('mouseup', e => {
+    e.stopPropagation();
+    annOnMouseUp(e, newOverlay, entry);
+  });
   newOverlay.addEventListener('dblclick', e => annOnDblClick(e, newOverlay, entry));
   newOverlay.addEventListener('contextmenu', e => annOnContextMenu(e, newOverlay, entry));
 }
@@ -5382,6 +5459,13 @@ function getAnnMousePos(e, overlay) {
 }
 
 function annOnMouseDown(e, overlay, entry) {
+  // フォント範囲選択モード中はパン・注釈操作をすべて無効
+  if (fontAnalyzeMode !== 'all') return;
+
+  // テキスト入力中なら閉じる
+  const existingInput = document.querySelector('.ann-text-input');
+  if (existingInput) { existingInput.blur(); return; }
+
   const p = getAnnMousePos(e, overlay);
   const anns = getEntryAnnotations(entry);
 
@@ -5439,16 +5523,22 @@ function annOnMouseDown(e, overlay, entry) {
     if (viewerMain) {
       const startX = e.clientX + viewerMain.scrollLeft;
       const startY = e.clientY + viewerMain.scrollTop;
+      let panning = true;
       const onMove = ev => {
+        if (!panning) return;
+        if (ev.buttons === 0) { onUp(); return; }
         viewerMain.scrollLeft = startX - ev.clientX;
         viewerMain.scrollTop = startY - ev.clientY;
       };
       const onUp = () => {
+        panning = false;
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
+        document.removeEventListener('mouseup', onUp);
       };
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
+      document.addEventListener('mouseup', onUp);
       e.preventDefault();
     }
     return;
@@ -5682,8 +5772,8 @@ function annCreateTextInput(p, overlay, entry, editingAnn = null) {
   const rect = overlay.getBoundingClientRect();
   const scaleX = rect.width / overlay.width;
   const scaleY = rect.height / overlay.height;
-  const displayX = posX * scaleX;
-  const displayY = posY * scaleY;
+  const displayX = posX * scaleX + overlay.offsetLeft;
+  const displayY = posY * scaleY + overlay.offsetTop;
   const displayFontSize = fontSize * scaleY;
 
   input.style.left = displayX + 'px';
@@ -5716,6 +5806,10 @@ function annCreateTextInput(p, overlay, entry, editingAnn = null) {
   }
 
   overlay.parentNode.appendChild(input);
+
+  // パン操作に伝わらないようブロック
+  input.addEventListener('mousedown', e => e.stopPropagation());
+  input.addEventListener('pointermove', e => e.stopPropagation());
 
   setTimeout(() => {
     input.focus();
@@ -6750,6 +6844,8 @@ function showFontAnalyzeOverlay(mode) {
 
   ov.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
     const rect = ov.getBoundingClientRect();
     const z = state.viewerZoom || 1;
     const pdfCanvas = document.getElementById('viewer-pdf-canvas');
@@ -6771,50 +6867,55 @@ function showFontAnalyzeOverlay(mode) {
       pointer-events: none;
     `;
     ov.appendChild(dragRect);
-  });
 
-  ov.addEventListener('mousemove', e => {
-    if (!dragStart || !dragRect) return;
-    const rect = ov.getBoundingClientRect();
-    const z = state.viewerZoom || 1;
-    const pdfCanvas = document.getElementById('viewer-pdf-canvas');
-    const scaleX = pdfCanvas ? pdfCanvas.width / (rect.width / z) : 1;
-    const scaleY = pdfCanvas ? pdfCanvas.height / (rect.height / z) : 1;
-    // 表示用（CSS座標: zoom前）
-    const dispX = (e.clientX - rect.left) / z;
-    const dispY = (e.clientY - rect.top) / z;
-    // データ用（canvas座標）
-    const x = dispX * scaleX;
-    const y = dispY * scaleY;
-    const x1d = Math.min(dragStart.x / scaleX, dispX);
-    const y1d = Math.min(dragStart.y / scaleY, dispY);
-    const wd = Math.abs(dispX - dragStart.x / scaleX);
-    const hd = Math.abs(dispY - dragStart.y / scaleY);
-    dragRect.style.left = x1d + 'px';
-    dragRect.style.top = y1d + 'px';
-    dragRect.style.width = wd + 'px';
-    dragRect.style.height = hd + 'px';
-  });
+    const onMove = e => {
+      if (!dragStart || !dragRect) return;
+      e.stopPropagation();
+      const rect = ov.getBoundingClientRect();
+      const z = state.viewerZoom || 1;
+      const pdfCanvas = document.getElementById('viewer-pdf-canvas');
+      const scaleX = pdfCanvas ? pdfCanvas.width / (rect.width / z) : 1;
+      const scaleY = pdfCanvas ? pdfCanvas.height / (rect.height / z) : 1;
+      const dispX = (e.clientX - rect.left) / z;
+      const dispY = (e.clientY - rect.top) / z;
+      const x1d = Math.min(dragStart.x / scaleX, dispX);
+      const y1d = Math.min(dragStart.y / scaleY, dispY);
+      const wd = Math.abs(dispX - dragStart.x / scaleX);
+      const hd = Math.abs(dispY - dragStart.y / scaleY);
+      dragRect.style.left = x1d + 'px';
+      dragRect.style.top = y1d + 'px';
+      dragRect.style.width = wd + 'px';
+      dragRect.style.height = hd + 'px';
+    };
 
-  ov.addEventListener('mouseup', e => {
-    if (!dragStart) return;
-    const rect = ov.getBoundingClientRect();
-    const z = state.viewerZoom || 1;
-    const pdfCanvas = document.getElementById('viewer-pdf-canvas');
-    const scaleX = pdfCanvas ? pdfCanvas.width / (rect.width / z) : 1;
-    const scaleY = pdfCanvas ? pdfCanvas.height / (rect.height / z) : 1;
-    const x = (e.clientX - rect.left) / z * scaleX;
-    const y = (e.clientY - rect.top) / z * scaleY;
-    const x1 = Math.min(dragStart.x, x);
-    const y1 = Math.min(dragStart.y, y);
-    const w = Math.abs(x - dragStart.x);
-    const h = Math.abs(y - dragStart.y);
-    dragStart = null;
-    if (dragRect) { dragRect.remove(); dragRect = null; }
-    const ovW = pdfCanvas ? pdfCanvas.width : rect.width / z;
-    const ovH = pdfCanvas ? pdfCanvas.height : rect.height / z;
-    if (w < 5 || h < 5) return;
-    handleRectAnalyze(x1, y1, w, h, ovW, ovH);
+    const onUp = e => {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseup', onUp, true);
+      if (!dragStart) return;
+      e.stopPropagation();
+      const rect = ov.getBoundingClientRect();
+      const z = state.viewerZoom || 1;
+      const pdfCanvas = document.getElementById('viewer-pdf-canvas');
+      const scaleX = pdfCanvas ? pdfCanvas.width / (rect.width / z) : 1;
+      const scaleY = pdfCanvas ? pdfCanvas.height / (rect.height / z) : 1;
+      const x = (e.clientX - rect.left) / z * scaleX;
+      const y = (e.clientY - rect.top) / z * scaleY;
+      const x1 = Math.min(dragStart.x, x);
+      const y1 = Math.min(dragStart.y, y);
+      const w = Math.abs(x - dragStart.x);
+      const h = Math.abs(y - dragStart.y);
+      dragStart = null;
+      if (dragRect) { dragRect.remove(); dragRect = null; }
+      const ovW = pdfCanvas ? pdfCanvas.width : rect.width / z;
+      const ovH = pdfCanvas ? pdfCanvas.height : rect.height / z;
+      removeFontAnalyzeOverlay();
+      fontAnalyzeMode = 'all';
+      if (w < 5 || h < 5) return;
+      handleRectAnalyze(x1, y1, w, h, ovW, ovH);
+    };
+
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('mouseup', onUp, true);
   });
 }
 
@@ -6911,6 +7012,13 @@ async function analyzePageFonts(entry, filter = null) {
   if (!file) return [];
   const page = await file.pdf.getPage(entry.pageNum);
 
+  // scale=1でのviewportを取得し、PDF座標→pt変換比率を得る
+  const vp1 = page.getViewport({ scale: 1, rotation: 0 });
+  // getTextContentのtransformはviewport座標系で返るのでscale=1で割り戻す
+  // UserUnitが1でない場合も考慮（通常は1）
+  const userUnit = page.userUnit || 1;
+  const ptScale = 1 / userUnit;
+
   // テキストとフォント情報を取得
   const textContent = await page.getTextContent();
   // 各テキスト項目の color を取得するため getOperatorList も使う
@@ -6960,9 +7068,16 @@ async function analyzePageFonts(entry, filter = null) {
     if (!text.trim()) continue;
     const style = stylesMap[item.fontName] || {};
     const fontFamily = style.fontFamily || item.fontName || 'sans-serif';
-    // サイズ: transform[3] や heightで判定
+    // サイズ: transformから正確なフォントサイズ(pt)を計算
+    // transform = [a, b, c, d, e, f] — テキスト行列とCTMの積
+    // フォントサイズ = sqrt(b²+d²) (縦方向スケール成分)
     const tr = item.transform || [];
-    const fontSize = Math.round(Math.abs(tr[3] || item.height || 12));
+    const a = tr[0] || 0, b = tr[1] || 0, c = tr[2] || 0, d = tr[3] || 0;
+    const scaleY = Math.sqrt(b * b + d * d);
+    const scaleX = Math.sqrt(a * a + c * c);
+    const rawSize = scaleY > 0.5 ? scaleY : (scaleX > 0.5 ? scaleX : Math.abs(d));
+    // item.heightが有効ならそちらを優先（PDF.jsがptで返す）
+    const fontSize = Math.round((item.height > 0 ? item.height : (rawSize || 12) * ptScale) * 2);
     if (fontSize < 4) continue;
 
     // 範囲フィルタ判定
@@ -8021,24 +8136,15 @@ function buildAnnPanel() {
     });
     modeRow.appendChild(btn);
   });
-  setFontAnalyzeMode('rect'); // デフォルトを範囲選択に
+  // 自動でモードに入らない（ボタンを押したときだけ有効化）
   fontSec.appendChild(modeRow);
 
   const fontList = document.createElement('div');
   fontList.id = 'ann-detected-fonts';
   fontList.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
-  fontList.innerHTML = '<div style="font-size:11px;color:var(--muted);font-style:italic;">解析中...</div>';
+  fontList.innerHTML = '<div style="font-size:11px;color:var(--muted);font-style:italic;">範囲を選択してください</div>';
   fontSec.appendChild(fontList);
   panel.appendChild(fontSec);
-
-  // 解析開始（初期は全体）
-  if (annCurrentEntry) {
-    analyzePageFonts(annCurrentEntry).then(fonts => {
-      renderDetectedFonts(fonts);
-    }).catch(e => {
-      fontList.innerHTML = '<div style="font-size:11px;color:var(--muted);font-style:italic;">解析できませんでした</div>';
-    });
-  }
 
   // ── 印鑑ライブラリ
   const stampSec = document.createElement('div');
@@ -9378,7 +9484,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         const hh = String(t.getHours()).padStart(2, '0');
         const mm = String(t.getMinutes()).padStart(2, '0');
         statusText.textContent = `前回の作業を復元 (${hh}:${mm} 時点)`;
-        // 注釈付きサムネを再描画（印鑑画像ロード待ちのため遅延）
         setTimeout(() => {
           state.pageOrder.forEach(entry => {
             const anns = getEntryAnnotations(entry);
@@ -9387,10 +9492,15 @@ window.addEventListener('DOMContentLoaded', async () => {
             }
           });
         }, 2000);
+      } else {
+        refreshUI();
       }
+    } else {
+      refreshUI();
     }
   } catch (e) {
     console.warn('復元失敗:', e);
+    refreshUI();
   }
 });
 
@@ -9424,6 +9534,7 @@ document.getElementById('trash-empty-btn-nav').addEventListener('click', () => {
   if (!confirm(`ゴミ箱内の${trash.length}件を完全に削除しますか？`)) return;
   trash.length = 0;
   updateTrashUI();
+  scheduleSave(true);
 });
 
 document.addEventListener('click', () => {
@@ -9436,10 +9547,76 @@ document.getElementById('trash-empty-btn').addEventListener('click', () => {
   if (!confirm(`ゴミ箱内の${trash.length}件を完全に削除しますか？`)) return;
   trash.length = 0;
   updateTrashUI();
+  scheduleSave(true);
 });
 updateTrashUI();
 
 } // end init
+</script>
+
+<!-- アップロードモーダル -->
+<div id="upload-modal-overlay" class="upload-modal-overlay" style="display:none;" onclick="if(event.target===this)hideUploadModal()">
+  <div class="upload-modal">
+    <div class="upload-modal-title">ファイルを追加</div>
+    <button class="upload-modal-btn" onclick="hideUploadModal(); document.getElementById('file-input').click()">
+      <div class="upload-modal-btn-icon">📁</div>
+      <div class="upload-modal-btn-text">
+        <div class="upload-modal-btn-label">ファイルを選択</div>
+        <div class="upload-modal-btn-desc">ファイルブラウザから選択</div>
+      </div>
+    </button>
+    <button class="upload-modal-btn" id="upload-modal-drag-btn" onclick="toggleDropArea()">
+      <div class="upload-modal-btn-icon">⤵</div>
+      <div class="upload-modal-btn-text">
+        <div class="upload-modal-btn-label">ドラッグ＆ドロップ</div>
+        <div class="upload-modal-btn-desc">ここにファイルをドロップ</div>
+      </div>
+    </button>
+    <div class="upload-modal-drop-area" id="upload-modal-drop-area">
+      ここにファイルをドロップ<br>
+      <span style="font-size:9px;opacity:0.5;margin-top:8px;display:block">PDF / IMAGE / OFFICE</span>
+    </div>
+    <button class="upload-modal-close" onclick="hideUploadModal()">✕ 閉じる</button>
+  </div>
+</div>
+
+<script>
+function showUploadModal() {
+  document.getElementById('upload-modal-overlay').style.display = 'flex';
+}
+function hideUploadModal() {
+  document.getElementById('upload-modal-overlay').style.display = 'none';
+  const drop = document.getElementById('upload-modal-drop-area');
+  drop.classList.remove('show', 'active');
+}
+function toggleDropArea() {
+  const drop = document.getElementById('upload-modal-drop-area');
+  drop.classList.toggle('show');
+}
+
+// ドロップエリアのドラッグ＆ドロップ処理
+(function() {
+  const drop = document.getElementById('upload-modal-drop-area');
+  drop.addEventListener('dragover', e => {
+    e.preventDefault();
+    drop.classList.add('active');
+  });
+  drop.addEventListener('dragleave', () => drop.classList.remove('active'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault();
+    drop.classList.remove('active');
+    hideUploadModal();
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      // 既存のfileInput経由でファイルを処理
+      const dt = new DataTransfer();
+      files.forEach(f => dt.items.add(f));
+      const fi = document.getElementById('file-input');
+      fi.files = dt.files;
+      fi.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+})();
 </script>
 
 <!-- ゴミ箱ウィジェット -->
