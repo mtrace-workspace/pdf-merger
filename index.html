@@ -9424,11 +9424,14 @@ async function restoreStateFromSnapshot(snap) {
   state.pageOrder = (snap.pageOrder || []).map(p => ({...p}));
   state.annotations = snap.annotations || {};
   state.groupNames = snap.groupNames || {};
-  // ゴミ箱を復元（ゴミ箱内は保存するがボードには表示しない）
+  // ゴミ箱を復元
+  // ボード上に存在するfileIdと重複するゴミ箱エントリは除外
+  const activeFileIds = new Set(state.files.map(f => f.id));
   trash.length = 0;
   if (snap.trash && Array.isArray(snap.trash)) {
     for (const t of snap.trash) {
       try {
+        if (activeFileIds.has(t.file.id)) continue;
         const pdf = await pdfjsLib.getDocument({ data: t.file.bytes.slice(0) }).promise;
         trash.push({ file: { ...t.file, pdf }, pages: t.pages });
       } catch (_) {}
