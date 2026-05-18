@@ -9318,7 +9318,7 @@ document.addEventListener('keydown', e => {
 // ════════════════════════════════════════════════════
 
 const DB_NAME = 'pdf_merger_v1';
-const DB_VERSION = 2; // バージョン維持
+const DB_VERSION = 3;
 const STORE_NAME = 'state';
 const THUMB_STORE = 'thumbs';
 const STATE_KEY = 'workspace';
@@ -9336,6 +9336,21 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(THUMB_STORE)) {
         db.createObjectStore(THUMB_STORE);
+      }
+      // v3へのアップグレード時：古いゴミ箱データを除去
+      if (e.oldVersion < 3 && e.oldVersion > 0) {
+        try {
+          const tx = e.target.transaction;
+          const store = tx.objectStore(STORE_NAME);
+          const getReq = store.get(STATE_KEY);
+          getReq.onsuccess = () => {
+            const data = getReq.result;
+            if (data && data.trash) {
+              delete data.trash;
+              store.put(data, STATE_KEY);
+            }
+          };
+        } catch(_) {}
       }
     };
     req.onsuccess = e => { dbInstance = e.target.result; resolve(dbInstance); };
@@ -9468,7 +9483,6 @@ function scheduleSave(immediate = false) {
   saveTimer = setTimeout(async () => {
     saveTimer = null;
     if (state.files.length === 0 && trash.length === 0) {
-      // 完全に空なら削除
       try {
         await clearStateFromDB();
       } catch (_) {}
@@ -9487,7 +9501,7 @@ function scheduleSave(immediate = false) {
       console.warn('保存失敗:', e);
       statusText.textContent = '保存失敗';
     }
-  }, 300);
+  }, delay);
 }
 
 // refreshUI と drawAllAnnotations にフックする代わりに、
@@ -9675,6 +9689,17 @@ document.getElementById('trash-empty-btn').addEventListener('click', () => {
   scheduleSave(true);
 });
 updateTrashUI();
+
+// ページを閉じる前に保存タイマーが残っていれば即時保存
+window.addEventListener('beforeunload', () => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const snap = buildStateSnapshot();
+    // 同期的にIndexedDBへ保存（非同期だがbeforeunloadで最善努力）
+    saveStateToDB(snap).catch(() => {});
+  }
+});
 
 } // end init
 </script>
