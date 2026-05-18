@@ -9615,6 +9615,13 @@ setInterval(() => {
 window.addEventListener('DOMContentLoaded', async () => {
   try {
     const snap = await loadStateFromDB();
+    // デバッグ：DBの生データを確認
+    console.log('[DB debug] snap:', snap ? {
+      files: snap.files?.length,
+      trash: snap.trash?.length,
+      trashNames: snap.trash?.map(t => t.file?.name),
+      savedAt: snap.savedAt ? new Date(snap.savedAt).toLocaleString() : null
+    } : null);
     if (snap && ((snap.files && snap.files.length > 0) || (snap.trash && snap.trash.length > 0))) {
       statusText.textContent = '前回の作業を復元中...';
       const ok = await restoreStateFromSnapshot(snap);
