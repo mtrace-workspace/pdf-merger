@@ -881,6 +881,15 @@
   /* カード上はカーソルを通常に戻す */
   .page-grid .page-card { cursor: grab; }
   .page-grid.panning .page-card { cursor: grabbing; }
+  /* ラバーバンド選択矩形 */
+  #rubberband-rect {
+    position: fixed;
+    border: 1.5px solid #555;
+    background: rgba(120,120,120,0.08);
+    pointer-events: none;
+    z-index: 9999;
+    display: none;
+  }
   .board-content {
     position: relative;
     width: 3000px;
@@ -2267,6 +2276,7 @@ const state = {
   fontFamily: '"Meiryo", "メイリオ", sans-serif',
   bold: false,
   italic: false,
+  underline: false,
   textColor: '#FF0000',
   textBg: 'white',
   textBgColor: '#FFFF88',
@@ -2360,49 +2370,162 @@ const boardContent = document.getElementById('board-content');
 const statusText = document.getElementById('status-text');
 const outputInfo = document.getElementById('output-info');
 
-// ── ボード空白部分でドラッグしてパン（画面移動） ──
+// ── ボード空白部分でドラッグしてパン（画面移動）/ 余白ドラッグで範囲選択 ──
+
+// ラバーバンド矩形をbodyに追加（fixed表示のため）
+const rubberbandEl = document.createElement('div');
+rubberbandEl.id = 'rubberband-rect';
+document.body.appendChild(rubberbandEl);
+
 let panSession = null;
+let rbSession = null; // ラバーバンド選択セッション
+
+// board-content上の座標を返す
+function getBoardPosFromClient(clientX, clientY) {
+  const rect = boardContent.getBoundingClientRect();
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
 pageGrid.addEventListener('pointerdown', e => {
-  // カード上は無視（カードのドラッグに任せる）
   if (e.target.closest('.page-card')) return;
-  // 左クリック以外は無視
   if (e.button !== 0) return;
-  panSession = {
+
+  // スペースキー押しながら or 中ボタン → パン
+  if (window._spacePan) {
+    panSession = {
+      pointerId: e.pointerId,
+      startX: e.clientX, startY: e.clientY,
+      scrollLeft: pageGrid.scrollLeft, scrollTop: pageGrid.scrollTop,
+      moved: false,
+    };
+    pageGrid.classList.add('panning');
+    try { pageGrid.setPointerCapture(e.pointerId); } catch (_) {}
+    return;
+  }
+
+  // 通常ドラッグ → ラバーバンド範囲選択
+  // startBX/Y: pointerdown時点のboard座標（スクロール込み）
+  const startBX = e.clientX + pageGrid.scrollLeft - boardContent.offsetLeft;
+  const startBY = e.clientY + pageGrid.scrollTop  - boardContent.offsetTop;
+  rbSession = {
     pointerId: e.pointerId,
-    startX: e.clientX,
-    startY: e.clientY,
-    scrollLeft: pageGrid.scrollLeft,
-    scrollTop: pageGrid.scrollTop,
+    startBX, startBY,
+    startClientX: e.clientX, startClientY: e.clientY,
+    additive: e.shiftKey,
     moved: false,
   };
-  pageGrid.classList.add('panning');
+  if (!e.shiftKey) {
+    state.selectedPageIdxs.clear();
+    document.querySelectorAll('.page-card').forEach(c => c.classList.remove('selected'));
+  }
+  rubberbandEl.style.display = 'none';
   try { pageGrid.setPointerCapture(e.pointerId); } catch (_) {}
 });
+
 pageGrid.addEventListener('pointermove', e => {
-  if (!panSession) return;
-  const dx = e.clientX - panSession.startX;
-  const dy = e.clientY - panSession.startY;
-  if (!panSession.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
-    panSession.moved = true;
+  // パン
+  if (panSession) {
+    const dx = e.clientX - panSession.startX;
+    const dy = e.clientY - panSession.startY;
+    if (!panSession.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) panSession.moved = true;
+    pageGrid.scrollLeft = panSession.scrollLeft - dx;
+    pageGrid.scrollTop = panSession.scrollTop - dy;
+    return;
   }
-  pageGrid.scrollLeft = panSession.scrollLeft - dx;
-  pageGrid.scrollTop = panSession.scrollTop - dy;
+  // ラバーバンド
+  if (!rbSession) return;
+  const dx = e.clientX - rbSession.startClientX;
+  const dy = e.clientY - rbSession.startClientY;
+  if (!rbSession.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) rbSession.moved = true;
+  if (!rbSession.moved) return;
+
+  // 表示矩形: clientXY（fixed座標）
+  const cx1 = Math.min(rbSession.startClientX, e.clientX);
+  const cy1 = Math.min(rbSession.startClientY, e.clientY);
+  const cx2 = Math.max(rbSession.startClientX, e.clientX);
+  const cy2 = Math.max(rbSession.startClientY, e.clientY);
+
+  rubberbandEl.style.display = 'block';
+  rubberbandEl.style.left   = cx1 + 'px';
+  rubberbandEl.style.top    = cy1 + 'px';
+  rubberbandEl.style.width  = (cx2 - cx1) + 'px';
+  rubberbandEl.style.height = (cy2 - cy1) + 'px';
+
+  // 矩形内のカードをリアルタイムでハイライト（画面座標で正確に判定）
+  if (!rbSession.additive) state.selectedPageIdxs.clear();
+  document.querySelectorAll('.page-card').forEach(card => {
+    const idx = parseInt(card.dataset.idx);
+    if (isNaN(idx)) return;
+    const r = card.getBoundingClientRect();
+    const inside = r.left < cx2 && r.right > cx1 && r.top < cy2 && r.bottom > cy1;
+    if (inside) state.selectedPageIdxs.add(idx);
+    else if (!rbSession.additive) state.selectedPageIdxs.delete(idx);
+  });
+  document.querySelectorAll('.page-card').forEach(c => {
+    const cidx = parseInt(c.dataset.idx);
+    c.classList.toggle('selected', state.selectedPageIdxs.has(cidx));
+  });
 });
+
 const endPan = e => {
-  if (!panSession) return;
-  const wasMoved = panSession.moved;
-  try { pageGrid.releasePointerCapture(panSession.pointerId); } catch (_) {}
-  panSession = null;
-  pageGrid.classList.remove('panning');
-  // 動いていない＝空白部分をクリックした → 選択解除
-  if (!wasMoved && state.selectedPageIdxs.size > 0) {
-    state.selectedPageIdxs.clear();
-    refreshUI();
+  // パン終了
+  if (panSession) {
+    const wasMoved = panSession.moved;
+    try { pageGrid.releasePointerCapture(panSession.pointerId); } catch (_) {}
+    panSession = null;
+    pageGrid.classList.remove('panning');
+    if (!wasMoved && state.selectedPageIdxs.size > 0) {
+      state.selectedPageIdxs.clear();
+      refreshUI();
+    }
+    return;
+  }
+  // ラバーバンド終了
+  if (rbSession) {
+    rubberbandEl.style.display = 'none';
+    const wasMoved = rbSession.moved;
+    try { pageGrid.releasePointerCapture(rbSession.pointerId); } catch (_) {}
+    rbSession = null;
+    if (!wasMoved && state.selectedPageIdxs.size > 0 && !e?.shiftKey) {
+      state.selectedPageIdxs.clear();
+      // 選択解除はCSSだけ更新（カード再生成しない）
+      document.querySelectorAll('.page-card').forEach(c => c.classList.remove('selected'));
+    }
+    // ラバーバンド選択はリアルタイムでCSS適用済みなのでrefreshUI不要
+    scheduleSave();
   }
 };
 pageGrid.addEventListener('pointerup', endPan);
 pageGrid.addEventListener('pointercancel', endPan);
 pageGrid.addEventListener('pointerleave', endPan);
+
+// ボード余白の右クリック → カード未選択ならペーストのみ、選択中なら選択カードのメニュー
+pageGrid.addEventListener('contextmenu', e => {
+  if (e.target.closest('.page-card')) return; // カード上はcard側で処理
+  e.preventDefault();
+  e.stopPropagation();
+  // 選択中カードがあればそのメニュー
+  if (state.selectedPageIdxs.size > 0) {
+    const idx = [...state.selectedPageIdxs][0];
+    showBoardContextMenu(e, idx);
+    return;
+  }
+  // 未選択でもページがあれば先頭カードのメニュー
+  if (state.pageOrder.length > 0) {
+    showBoardContextMenu(e, 0);
+    return;
+  }
+  // ページがない場合はペーストのみ
+  const items = [];
+  if (pageClipboard.length > 0) {
+    items.push({
+      label: 'ペースト',
+      icon: CTX_ICONS.copy,
+      action: () => actPastePages(null),
+    });
+    showCtxMenu(e.clientX, e.clientY, items);
+  }
+});
 
 // 新しい束（PDF）の配置開始位置を決める
 function findNextGroupOrigin() {
@@ -2613,7 +2736,7 @@ async function loadFiles(files) {
     }
     const { file, bytes, pdf } = result.value;
     try {
-      const id = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const id = 'f_' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'') : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)));
       // 同名ファイルが既にあれば番号を付ける
       let uniqueName = file.name;
       const baseName = file.name.replace(/(\.[^.]+)$/, '');
@@ -3055,11 +3178,13 @@ function renderPageMode() {
     thumb.appendChild(cv);
 
     // メモリキャッシュがあれば即座にimg差し込み（非同期待ち不要）
+    // 注釈付きサムネ（uidベース）を優先、なければ従来キー
     const memKey = `${file.id}_${entry.pageNum}_r${entry.rotation || 0}`;
-    if (pageThumbCache.has(memKey)) {
-      const cached = pageThumbCache.get(memKey);
-      const dataUrl = cached.dataUrl || cached;
-      const cachedW = cached.w || 0, cachedH = cached.h || 0;
+    const uidKey = `uid_${entry.uid}_r${entry.rotation || 0}`;
+    const cachedEntry = pageThumbCache.get(uidKey) || pageThumbCache.get(memKey);
+    if (cachedEntry) {
+      const dataUrl = cachedEntry.dataUrl || cachedEntry;
+      const cachedW = cachedEntry.w || 0, cachedH = cachedEntry.h || 0;
       if (cachedW > 0 && cachedH > 0) {
         card.style.width = (cachedW + 12) + 'px';
         card.dataset.orientation = cachedW > cachedH ? 'landscape' : 'portrait';
@@ -3417,7 +3542,11 @@ function handlePageClick(idx, e) {
     }
   }
   state.lastSelectedPageIdx = idx;
-  refreshUI();
+  // 選択状態のCSSだけ更新（refreshUIでカード再生成しない）
+  document.querySelectorAll('.page-card').forEach(c => {
+    const cidx = parseInt(c.dataset.idx);
+    c.classList.toggle('selected', state.selectedPageIdxs.has(cidx));
+  });
   // キーボードショートカット（Delete等）が効くようにフォーカスをbodyへ
   setTimeout(() => document.body.focus(), 0);
 }
@@ -3540,7 +3669,9 @@ async function cropWhiteAsync(ctx, w, h) {
 
 // 即時描画（IntersectionObserverのコールバック内で呼ばれる）
 async function renderPageThumbnailNow(file, pageNum, canvas, rotation = 0) {
-  const key = `${file.id}_${pageNum}_r${rotation}`;
+  const entryUid = canvas.dataset.entryUid || '';
+  const hasAnns = entryUid && state.annotations[entryUid] && state.annotations[entryUid].length > 0;
+  const key = hasAnns ? `uid_${entryUid}_r${rotation}` : `${file.id}_${pageNum}_r${rotation}`;
   const dbKey = fileThumbKey(file, pageNum, rotation);
   if (!file || !file.pdf) return;
 
@@ -3723,6 +3854,7 @@ let lastClickInfo = null; // ダブルクリック検出用
 function setupCardPointerHandlers(card, idx) {
   // 右クリックメニュー
   card.addEventListener('contextmenu', e => {
+    e.stopPropagation();
     showBoardContextMenu(e, idx);
   });
 
@@ -4128,6 +4260,15 @@ function renderExpansionModal() {
   modal.id = 'expanded-modal';
   modal.className = 'expanded-modal';
 
+  // ビューア内の空白で右クリック→現在ページのメニューを表示
+  modal.addEventListener('contextmenu', e => {
+    if (e.target.closest('.ctx-menu')) return;
+    if (e.target.id === 'viewer-ann-overlay') return;
+    e.preventDefault();
+    e.stopPropagation();
+    showViewerContextMenu(e, state.viewerMemberIdx);
+  });
+
   const content = document.createElement('div');
   content.className = 'expanded-content';
 
@@ -4239,6 +4380,13 @@ function renderExpansionModal() {
 
     thumbsCol.appendChild(t);
   });
+  // ページマップ余白の右クリック → 現在ページのフルメニュー
+  thumbsCol.addEventListener('contextmenu', e => {
+    if (e.target.closest('.viewer-thumb')) return; // 個別サムネはそちらで処理
+    e.preventDefault();
+    e.stopPropagation();
+    showViewerContextMenu(e, state.viewerMemberIdx);
+  });
   body.appendChild(thumbsCol);
 
   // 中央ビューア
@@ -4270,6 +4418,15 @@ function renderExpansionModal() {
 
   // viewer-mainの余白でドラッグしてパン（上下左右）
   let panState = null;
+  main.addEventListener('contextmenu', e => {
+    // ann-overlayはannOnContextMenuが処理するのでスキップ
+    if (e.target.id === 'viewer-ann-overlay') return;
+    e.preventDefault();
+    e.stopPropagation();
+    // 作業スペース余白の右クリック → フルメニュー表示
+    showViewerContextMenu(e, state.viewerMemberIdx);
+  });
+
   main.addEventListener('pointerdown', e => {
     if (e.target.closest('button, select, input, textarea')) return;
     if (e.target.id === 'viewer-ann-overlay') return;
@@ -4408,11 +4565,13 @@ function renderExpansionModal() {
       const file = state.files.find(f => f.id === fileId);
       if (!file || !pageNum) return;
 
+      const entryUidForThumb = cv.dataset.entryUid || '';
       const memKey = `${fileId}_${pageNum}_r${rotation}`;
-      if (pageThumbCache.has(memKey)) {
+      const uidKeyForThumb = entryUidForThumb ? `uid_${entryUidForThumb}_r${rotation}` : null;
+      const cachedForThumb = (uidKeyForThumb && pageThumbCache.get(uidKeyForThumb)) || pageThumbCache.get(memKey);
+      if (cachedForThumb) {
         // キャッシュあり → 即差し込み
-        const cached = pageThumbCache.get(memKey);
-        const dataUrl = cached.dataUrl || cached;
+        const dataUrl = cachedForThumb.dataUrl || cachedForThumb;
         let img = cv.parentElement.querySelector('img.thumb-img');
         if (!img) {
           img = document.createElement('img');
@@ -4666,7 +4825,7 @@ function duplicateCurrentViewerPage() {
   };
   // 注釈もディープコピー
   if (state.annotations[original.uid]) {
-    state.annotations[copy.uid] = state.annotations[original.uid].map(a => ({...a, id: Date.now() + Math.random()}));
+    state.annotations[copy.uid] = state.annotations[original.uid].map(a => ({ ...deepCloneAnnotation(a), id: Date.now() + Math.random() }));
   }
   state.pageOrder.splice(cur.idx + 1, 0, copy);
   state.viewerMemberIdx++;
@@ -4984,24 +5143,47 @@ async function actDelete() {
   const ok = await confirmDelete(msg, 'ページを削除');
   if (!ok) return;
 
-  // 削除対象のファイルをゴミ箱へ（そのファイルの全ページが削除対象の場合のみfileを除去）
-  const deletedFileIds = new Set();
-  [...targetIdxs].forEach(idx => {
-    const p = state.pageOrder[idx];
-    if (p) deletedFileIds.add(p.fileId);
-  });
-  deletedFileIds.forEach(fileId => {
-    const file = state.files.find(f => f.id === fileId);
-    if (!file) return;
-    const allPageIdxsOfFile = [];
-    state.pageOrder.forEach((p, i) => { if (p.fileId === fileId) allPageIdxsOfFile.push(i); });
-    const allDeleted = allPageIdxsOfFile.every(i => targetIdxs.has(i));
-    if (allDeleted) {
-      const pages = allPageIdxsOfFile.map(i => state.pageOrder[i]);
-      trash.push({ file, pages, deletedAt: Date.now() });
-      state.files = state.files.filter(f => f.id !== fileId);
-    }
-  });
+  // 削除対象ページが属するファイルをゴミ箱へ
+  // fileIdが重複する場合も state.files の各エントリを pageCount 順に正確に割り当て
+  {
+    // fi(state.filesの配列インデックス) -> 担当するpageOrderインデックスのリスト
+    const fiPageMap = new Map();
+    // fileIdごとに何番目のfileが担当するかのカーソル
+    const fiCursor = new Map(); // fileId -> state.files内で次に使うインデックス
+    state.pageOrder.forEach((p, pi) => {
+      const fid = p.fileId;
+      // このfileIdを持つfiリスト（順序保持）
+      if (!fiCursor.has(fid)) {
+        const list = [];
+        state.files.forEach((f, fi) => { if (f.id === fid) list.push(fi); });
+        fiCursor.set(fid, { list, cur: 0, usedInCurrent: 0 });
+      }
+      const cs = fiCursor.get(fid);
+      if (cs.list.length === 0) return;
+      const fi = cs.list[cs.cur];
+      if (!fiPageMap.has(fi)) fiPageMap.set(fi, []);
+      fiPageMap.get(fi).push(pi);
+      cs.usedInCurrent++;
+      // このfiのpageCountを超えたら次のfiへ
+      const cap = state.files[fi] ? (state.files[fi].pageCount || Infinity) : Infinity;
+      if (cs.usedInCurrent >= cap && cs.cur < cs.list.length - 1) {
+        cs.cur++;
+        cs.usedInCurrent = 0;
+      }
+    });
+
+    const filesToRemoveIdxs = new Set();
+    fiPageMap.forEach((pageIdxList, fi) => {
+      if (pageIdxList.length === 0) return;
+      const allDeleted = pageIdxList.every(i => targetIdxs.has(i));
+      if (allDeleted) {
+        const file = state.files[fi];
+        trash.push({ file, pages: pageIdxList.map(i => state.pageOrder[i]), deletedAt: Date.now() });
+        filesToRemoveIdxs.add(fi);
+      }
+    });
+    state.files = state.files.filter((_, fi) => !filesToRemoveIdxs.has(fi));
+  }
 
   state.pageOrder = state.pageOrder.filter((_, idx) => !targetIdxs.has(idx));
   state.selectedPageIdxs.clear();
@@ -5011,6 +5193,102 @@ async function actDelete() {
 }
 
 // 複製
+// クリップボード（ページコピー用）
+let pageClipboard = [];
+
+function actCopyPages() {
+  if (state.selectedPageIdxs.size === 0) return;
+  const selectedIdxs = [...state.selectedPageIdxs];
+  // 選択ページが属するグループの全ページも含める
+  const targetGroupIds = new Set();
+  selectedIdxs.forEach(idx => {
+    const entry = state.pageOrder[idx];
+    if (entry && entry.groupId) targetGroupIds.add(entry.groupId);
+  });
+  const allIdxs = new Set(selectedIdxs);
+  state.pageOrder.forEach((p, i) => {
+    if (p.groupId && targetGroupIds.has(p.groupId)) allIdxs.add(i);
+  });
+  const sortedIdxs = [...allIdxs].sort((a, b) => a - b);
+  pageClipboard = sortedIdxs.map(idx => ({ ...state.pageOrder[idx] }));
+  if (typeof statusText !== 'undefined') statusText.textContent = `${pageClipboard.length}ページをコピーしました`;
+}
+
+function actPastePages(targetGroupId = null) {
+  if (pageClipboard.length === 0) return;
+  const newIdxs = [];
+  const newEntries = [];
+
+  // グループIDの再マッピング（元のgroupIdを新しいgroupIdに変換）
+  const groupIdMap = new Map();
+  pageClipboard.forEach(original => {
+    if (original.groupId && !groupIdMap.has(original.groupId)) {
+      groupIdMap.set(original.groupId, 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6));
+    }
+  });
+
+  pageClipboard.forEach(original => {
+    const newUid = 'pg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    // ペースト先グループ指定がある場合はそこへ、なければ束構造を維持
+    const newGroupId = targetGroupId !== null
+      ? targetGroupId
+      : (original.groupId ? groupIdMap.get(original.groupId) : null);
+    const copy = {
+      ...original,
+      uid: newUid,
+      groupId: newGroupId,
+      x: (original.x || 0) + 30,
+      y: (original.y || 0) + 30,
+    };
+    if (state.annotations[original.uid]) {
+      state.annotations[newUid] = state.annotations[original.uid].map(a => ({ ...deepCloneAnnotation(a), id: Date.now() + Math.random() }));
+    }
+    state.pageOrder.push(copy);
+    newIdxs.push(state.pageOrder.length - 1);
+    newEntries.push({ entry: copy, original });
+  });
+  state.selectedPageIdxs.clear();
+  // 束の場合はrepIdx（先頭ページ）だけ選択状態に
+  const newGroupIds = new Set(newEntries.map(e => e.entry.groupId).filter(Boolean));
+  if (newGroupIds.size > 0) {
+    newGroupIds.forEach(gid => {
+      const firstIdx = state.pageOrder.findIndex(p => p.groupId === gid && newIdxs.includes(state.pageOrder.indexOf(p)));
+      // repIdxを選択
+      const repIdx = newIdxs.find(i => state.pageOrder[i].groupId === gid);
+      if (repIdx !== undefined) state.selectedPageIdxs.add(repIdx);
+    });
+  } else {
+    newIdxs.forEach(i => state.selectedPageIdxs.add(i));
+  }
+  refreshUI();
+  // サムネキャッシュを元ページからコピーして即表示
+  newEntries.forEach(({ entry, original }) => {
+    const file = state.files.find(f => f.id === entry.fileId);
+    if (!file) return;
+    const origKey = `${original.fileId}_${original.pageNum}_r${original.rotation || 0}`;
+    const newKey = `${entry.fileId}_${entry.pageNum}_r${entry.rotation || 0}`;
+    if (pageThumbCache.has(origKey) && !pageThumbCache.has(newKey)) {
+      pageThumbCache.set(newKey, pageThumbCache.get(origKey));
+    }
+    // ビューア内のサムネを即時更新
+    const canvas = document.querySelector(`canvas[data-entry-uid="${entry.uid}"]`);
+    if (canvas) {
+      const cached = pageThumbCache.get(newKey);
+      if (cached) {
+        applyThumbToCard(entry.fileId, entry.pageNum, entry.rotation || 0, cached.dataUrl || cached, cached.w || 0, cached.h || 0);
+      } else {
+        renderPageThumbnail(file, entry.pageNum, canvas, entry.rotation || 0);
+      }
+    }
+  });
+  // ビューアが開いていたら再レンダリング
+  if (targetGroupId && state.expandedGroupId === targetGroupId) {
+    renderExpansionModal();
+  }
+  scheduleSave();
+  if (typeof statusText !== 'undefined') statusText.textContent = `${pageClipboard.length}ページをペーストしました`;
+}
+
 function actDuplicate() {
   if (state.selectedPageIdxs.size === 0) return;
   const idxs = [...state.selectedPageIdxs].sort((a, b) => a - b);
@@ -5025,7 +5303,7 @@ function actDuplicate() {
       y: (original.y || 0) + 20,
     };
     if (state.annotations[original.uid]) {
-      state.annotations[newUid] = state.annotations[original.uid].map(a => ({...a, id: Date.now() + Math.random()}));
+      state.annotations[newUid] = state.annotations[original.uid].map(a => ({ ...deepCloneAnnotation(a), id: Date.now() + Math.random() }));
     }
     state.pageOrder.push(copy);
     newIdxs.push(state.pageOrder.length - 1);
@@ -5550,6 +5828,23 @@ document.addEventListener('keydown', e => {
     actSelectAll();
     return;
   }
+  // Ctrl+C: コピー
+  if ((e.ctrlKey || e.metaKey) && k === 'c') {
+    if (!state.expandedGroupId && state.selectedPageIdxs.size > 0) {
+      e.preventDefault();
+      actCopyPages();
+      return;
+    }
+  }
+  // Ctrl+V: ペースト
+  if ((e.ctrlKey || e.metaKey) && k === 'v') {
+    if (pageClipboard.length > 0) {
+      e.preventDefault();
+      const groupId = state.expandedGroupId || null;
+      actPastePages(groupId);
+      return;
+    }
+  }
   // Delete: 削除
   if (e.key === 'Delete' || e.key === 'Backspace') {
     // 印鑑登録モーダルが開いているときは無効
@@ -5648,42 +5943,10 @@ function annOnContextMenu(e, overlay, entry) {
   e.preventDefault();
   e.stopPropagation();
 
-  // 何もない場所での右クリック → ペーストのみのメニュー
+  // 何もない場所での右クリック → ページメニュー＋注釈ペースト
   if (!hit) {
-    if (annClipboard) {
-      showCtxMenu(e.clientX, e.clientY, [
-        { label: 'ここにペースト', action: () => {
-          const newAnn = deepCloneAnnotation(annClipboard);
-          newAnn.id = Date.now() + Math.random();
-          // クリック位置に配置（中心になるように調整）
-          if (newAnn.type === 'polygon' && newAnn.points) {
-            // 多角形の重心を計算してオフセット
-            let cx = 0, cy = 0;
-            newAnn.points.forEach(pt => { cx += pt.x; cy += pt.y; });
-            cx /= newAnn.points.length;
-            cy /= newAnn.points.length;
-            const dx = p.x - cx, dy = p.y - cy;
-            newAnn.points = newAnn.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }));
-          } else if (newAnn.x2 !== undefined) {
-            // 線・矢印
-            const cx = (newAnn.x + newAnn.x2) / 2;
-            const cy = (newAnn.y + newAnn.y2) / 2;
-            const dx = p.x - cx, dy = p.y - cy;
-            newAnn.x += dx; newAnn.y += dy;
-            newAnn.x2 += dx; newAnn.y2 += dy;
-          } else if (newAnn.w !== undefined) {
-            // 矩形系
-            newAnn.x = p.x - newAnn.w / 2;
-            newAnn.y = p.y - newAnn.h / 2;
-          } else {
-            newAnn.x = p.x; newAnn.y = p.y;
-          }
-          getEntryAnnotations(entry).push(newAnn);
-          state.annSelectedId = newAnn.id;
-          drawAllAnnotations(entry);
-        }},
-      ]);
-    }
+    // ページ操作メニューをベースに出す
+    showViewerContextMenu(e, state.viewerMemberIdx);
     return;
   }
 
@@ -5692,7 +5955,6 @@ function annOnContextMenu(e, overlay, entry) {
 
   const items = [
     { label: 'コピー (Ctrl+C)', action: () => annCopySelected() },
-    { label: '複製 (Ctrl+D)', action: () => annDuplicateSelected() },
     { label: 'カット (Ctrl+X)', action: () => annCutSelected() },
   ];
   if (annClipboard) {
@@ -6027,6 +6289,7 @@ function annCreateTextInput(p, overlay, entry, editingAnn = null) {
   const fontFamily = editingAnn ? (editingAnn.fontFamily || '"Meiryo", "メイリオ", sans-serif') : state.fontFamily;
   const bold = editingAnn ? editingAnn.bold : state.bold;
   const italic = editingAnn ? editingAnn.italic : state.italic;
+  const underline = editingAnn ? !!editingAnn.underline : state.underline;
   const textBg = editingAnn ? (editingAnn.textBg || 'none') : state.textBg;
   const textBgColor = editingAnn ? editingAnn.textBgColor : state.textBgColor;
   const posX = editingAnn ? editingAnn.x : p.x;
@@ -6047,6 +6310,7 @@ function annCreateTextInput(p, overlay, entry, editingAnn = null) {
   input.style.fontFamily = fontFamily;
   input.style.fontWeight = bold ? '700' : '400';
   input.style.fontStyle = italic ? 'italic' : 'normal';
+  input.style.textDecoration = underline ? 'underline' : 'none';
   input.style.lineHeight = '1.6';
   input.style.minWidth = '300px';
   input.style.minHeight = '64px';
@@ -6118,6 +6382,7 @@ function annCreateTextInput(p, overlay, entry, editingAnn = null) {
         fontFamily: state.fontFamily,
         bold: state.bold,
         italic: state.italic,
+        underline: state.underline,
         textBg: state.textBg,
         textBgColor: state.textBgColor,
       };
@@ -6340,7 +6605,8 @@ async function overlayAnnotationsOnThumb(canvas, file, page, baseDataUrl, w, h, 
     finalCtx.restore();
 
     const finalDataUrl = finalCanvas.toDataURL('image/jpeg', 0.85);
-    pageThumbCache.set(cacheKey, { dataUrl: finalDataUrl, w, h });
+    const annCacheKey = `uid_${entryUid}_r${rotation}`;
+    pageThumbCache.set(annCacheKey, { dataUrl: finalDataUrl, w, h });
     saveThumbToDB(dbKey, finalDataUrl);
 
     document.querySelectorAll(`canvas[data-entry-uid="${entryUid}"]`).forEach(cv => {
@@ -6361,8 +6627,11 @@ function refreshThumbWithAnnotations(entry) {
   const file = state.files.find(f => f.id === entry.fileId);
   if (!file) return;
   const rotation = entry.rotation || 0;
+  // uidベースのキャッシュを削除（注釈付きサムネ）
+  const uidKey = `uid_${entry.uid}_r${rotation}`;
+  pageThumbCache.delete(uidKey);
+  // 従来キーも削除
   const key = `${file.id}_${entry.pageNum}_r${rotation}`;
-  // メモリキャッシュとDBキャッシュを両方無効化
   pageThumbCache.delete(key);
   const dbKey = fileThumbKey(file, entry.pageNum, rotation);
   if (dbKey && typeof deleteThumbFromDB === 'function') deleteThumbFromDB(dbKey);
@@ -6611,7 +6880,21 @@ function annDraw(ctx, a) {
     }
     ctx.fillStyle = a.textColor || a.color;
     lines.forEach((line, i) => {
-      ctx.fillText(line, a.x, a.y + i * lineHeight);
+      const y = a.y + i * lineHeight;
+      ctx.fillText(line, a.x, y);
+      // アンダーライン
+      if (a.underline && line.length > 0) {
+        const w = ctx.measureText(line).width;
+        const ulY = y + a.fontSize * 0.12;
+        ctx.save();
+        ctx.strokeStyle = a.textColor || a.color;
+        ctx.lineWidth = Math.max(1, a.fontSize * 0.06);
+        ctx.beginPath();
+        ctx.moveTo(a.x, ulY);
+        ctx.lineTo(a.x + w, ulY);
+        ctx.stroke();
+        ctx.restore();
+      }
     });
     ctx.restore();
   } else if (a.type === 'polygon') {
@@ -7250,14 +7533,14 @@ function buildAnnToolRow() {
 
   row.appendChild((() => { const d = document.createElement('div'); d.className='ann-tool-divider'; return d; })());
 
-  ['取り出し', '複製', '削除'].forEach(label => {
+  ['取り出し', 'コピー', '削除'].forEach(label => {
     const btn = document.createElement('button');
     btn.className = 'ann-tool' + (label === '削除' ? ' danger' : '');
     btn.textContent = label;
     btn.style.cssText = 'width:auto;padding:0 10px;font-size:11px;white-space:nowrap;';
     btn.addEventListener('click', () => {
       if (label === '取り出し') extractCurrentViewerPage();
-      else if (label === '複製') duplicateCurrentViewerPage();
+      else if (label === 'コピー') duplicateCurrentViewerPage();
       else if (label === '削除') deleteCurrentViewerPage();
     });
     row.appendChild(btn);
@@ -7881,6 +8164,7 @@ function renderDetectedFonts(fonts) {
       state.color = f.color;
       state.bold = !!f.bold;
       state.italic = !!f.italic;
+      state.underline = false; // フォント解析ではunderlineは非対応のためリセット
       // 文字ツールに切替
       state.tool = 'text';
       document.querySelectorAll('.ann-tool[data-tool]').forEach(b => {
@@ -8406,8 +8690,17 @@ function buildAnnPanel() {
     italicBtn.classList.toggle('active', state.italic);
     annApplyToSelected({ italic: state.italic });
   });
+  const underlineBtn = document.createElement('button');
+  underlineBtn.className = 'ann-style-btn' + (state.underline ? ' active' : '');
+  underlineBtn.innerHTML = '<u>U</u>';
+  underlineBtn.addEventListener('click', () => {
+    state.underline = !state.underline;
+    underlineBtn.classList.toggle('active', state.underline);
+    annApplyToSelected({ underline: state.underline });
+  });
   styleBtns.appendChild(boldBtn);
   styleBtns.appendChild(italicBtn);
+  styleBtns.appendChild(underlineBtn);
   const styleRow = propRow('スタイル', styleBtns);
 
   // 文字背景
@@ -9295,14 +9588,23 @@ function showBoardContextMenu(e, idx) {
   });
   items.push('divider');
 
-  // 複製
+  // コピー
   items.push({
-    label: '複製',
+    label: 'コピー',
     icon: CTX_ICONS.copy,
     action: () => {
-      actDuplicate();
+      actCopyPages();
     },
   });
+
+  // ペースト（クリップボードにデータがある場合のみ）
+  if (pageClipboard.length > 0) {
+    items.push({
+      label: 'ペースト',
+      icon: CTX_ICONS.copy,
+      action: () => actPastePages(null),
+    });
+  }
 
   // 回転（サブメニュー的に1択にできないので、3項目で並べる）
   items.push({
@@ -9399,10 +9701,35 @@ function showViewerContextMenu(e, memberIdx) {
       action: () => extractCurrentViewerPage(),
     },
     {
-      label: '複製',
+      label: 'コピー',
       icon: CTX_ICONS.copy,
-      action: () => duplicateCurrentViewerPage(),
+      action: () => {
+        // ビューア内の現在ページをコピー
+        const entry = annCurrentEntry;
+        if (entry) {
+          const idx = state.pageOrder.indexOf(entry);
+          if (idx >= 0) {
+            state.selectedPageIdxs.clear();
+            state.selectedPageIdxs.add(idx);
+            actCopyPages();
+          }
+        }
+      },
     },
+    ...(pageClipboard.length > 0 ? [{
+      label: 'ペースト',
+      icon: CTX_ICONS.copy,
+      action: () => {
+        const entry = annCurrentEntry;
+        const groupId = entry ? entry.groupId : null;
+        actPastePages(groupId);
+      },
+    }] : []),
+    ...(annClipboard ? [{
+      label: '注釈をペースト',
+      icon: CTX_ICONS.copy,
+      action: () => annPasteFromClipboard(),
+    }] : []),
     'divider',
     {
       label: '削除',
@@ -9883,33 +10210,62 @@ function buildStateSnapshot() {
 // スナップショットから状態を復元
 async function restoreStateFromSnapshot(snap) {
   if (!snap || !snap.files) return false;
-  // PDF.jsドキュメントをロード（pdfプロパティ）
+
+  // 全ファイルに必ず新IDを割り当て（重複fileIdを完全解消）
+  const idRemap = []; // 順序保持: { oldId, newId, pageCount }
+  for (const f of (snap.files || [])) {
+    const newId = 'f_' + crypto.randomUUID().replace(/-/g,'');
+    idRemap.push({ oldId: f.id, newId, pageCount: f.pageCount || 0 });
+  }
+
+  // pageOrderの各エントリのfileIdをidRemapに従って振り直す
+  // 同じoldIdを持つファイルが複数ある場合はpageCount単位で順番に割り当て
+  const remapCursor = {}; // oldId -> { remapIdx, usedCount }
+  const pageOrderFixed = (snap.pageOrder || []).map(p => {
+    const entries = idRemap.filter(r => r.oldId === p.fileId);
+    if (entries.length === 0) return {...p};
+    if (!remapCursor[p.fileId]) remapCursor[p.fileId] = { remapIdx: 0, usedCount: 0 };
+    const c = remapCursor[p.fileId];
+    const entry = entries[c.remapIdx] || entries[entries.length - 1];
+    const result = {...p, fileId: entry.newId};
+    c.usedCount++;
+    if (c.usedCount >= entry.pageCount && c.remapIdx < entries.length - 1) {
+      c.remapIdx++;
+      c.usedCount = 0;
+    }
+    return result;
+  });
+
+  // ファイルを新IDで復元
   state.files = [];
-  for (const f of snap.files) {
+  for (let i = 0; i < (snap.files || []).length; i++) {
+    const f = snap.files[i];
+    const newId = idRemap[i].newId;
     try {
       const pdf = await pdfjsLib.getDocument({ data: f.bytes.slice(0) }).promise;
-      state.files.push({
-        ...f,
-        pdf,
-        lastModified: f.lastModified || snap.savedAt || Date.now(),
-      });
+      state.files.push({ ...f, id: newId, pdf, lastModified: f.lastModified || snap.savedAt || Date.now() });
     } catch (e) {
       console.warn('PDF復元失敗:', f.name, e);
     }
   }
-  state.pageOrder = (snap.pageOrder || []).map(p => ({...p}));
+
+  state.pageOrder = pageOrderFixed;
   state.annotations = snap.annotations || {};
   state.groupNames = snap.groupNames || {};
+
   // ゴミ箱を復元
   trash.length = 0;
   if (snap.trash && Array.isArray(snap.trash)) {
     for (const t of snap.trash) {
       try {
         const pdf = await pdfjsLib.getDocument({ data: t.file.bytes.slice(0) }).promise;
-        trash.push({ file: { ...t.file, pdf }, pages: t.pages });
+        const newId = 'f_' + crypto.randomUUID().replace(/-/g,'');
+        const fixedPages = (t.pages || []).map(p => ({...p, fileId: newId}));
+        trash.push({ file: { ...t.file, id: newId, pdf }, pages: fixedPages });
       } catch (_) {}
     }
   }
+
   refreshUI();
   updateTrashUI();
   return true;
