@@ -214,8 +214,128 @@
 
   /* Main */
   main {
+    display: flex;
+    overflow: hidden;
+    height: 100%;
+  }
+
+  /* フォルダサイドバー */
+  #folder-sidebar {
+    width: 220px;
+    min-width: 160px;
+    max-width: 320px;
+    background: #1a1a1a;
+    border-right: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  #folder-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.35);
+    text-transform: uppercase;
+  }
+  #folder-sidebar-header button {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.5);
+    border-radius: 3px;
+    padding: 2px 7px;
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  #folder-sidebar-header button:hover { background: rgba(255,255,255,0.08); color: white; }
+  #folder-tree {
+    flex: 1;
     overflow-y: auto;
+    padding: 6px 0;
+  }
+  .folder-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px 5px 0;
+    cursor: pointer;
+    border-radius: 3px;
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+    position: relative;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .folder-item:hover { background: rgba(255,255,255,0.06); color: white; }
+  .folder-item.active { background: rgba(255,255,255,0.12); color: white; }
+  .folder-item .folder-toggle {
+    width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    color: rgba(255,255,255,0.3);
+    font-size: 10px;
+  }
+  .folder-item .folder-icon { flex-shrink: 0; font-size: 13px; }
+  .folder-item .folder-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .folder-item .folder-name-input {
+    flex: 1;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    font-size: 12px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    outline: none;
+    width: 100%;
+    max-width: 120px;
+  }
+  .folder-item .folder-menu-btn {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .folder-item:hover .folder-menu-btn { opacity: 1; }
+  .folder-item .folder-menu-btn:hover { color: white; background: rgba(255,255,255,0.1); }
+  #folder-drop-zone {
+    height: 40px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: rgba(255,255,255,0.2);
+    cursor: pointer;
+  }
+  #folder-drop-zone:hover { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.4); }
+  #folder-drop-zone.drag-over { background: rgba(255,255,255,0.08); color: white; border-color: rgba(255,255,255,0.3); }
+
+  /* メインコンテンツ（フォルダサイドバーの右） */
+  #main-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
     padding: 32px 40px;
+    min-width: 0;
   }
 
   /* Empty state */
@@ -223,14 +343,12 @@
   .empty-state-main {
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    height: 100vh;
-    max-height: 100vh;
+    flex: 1;
     overflow: hidden;
     text-align: center;
     padding: 0;
     background-color: #1a1a1a;
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
+    position: relative;
   }
   .empty-state-main::before {
     display: none;
@@ -2153,6 +2271,18 @@
 </header>
 
 <main>
+  <!-- フォルダサイドバー -->
+  <div id="folder-sidebar" style="display:none;">
+    <div id="folder-sidebar-header">
+      <span>FOLDERS</span>
+      <button id="btn-add-folder" title="新しいフォルダを追加">＋</button>
+    </div>
+    <div id="folder-tree"></div>
+    <div id="folder-drop-zone">ここにドロップして移動</div>
+  </div>
+
+  <!-- メインコンテンツ -->
+  <div id="main-content">
   <!-- Empty state -->
   <div class="empty-state-main" id="empty-state" style="display: none;">
 
@@ -2187,6 +2317,7 @@
       <div class="board-content" id="board-content" style="width: 800px; height: 600px;"></div>
     </div>
   </div>
+  </div><!-- /#main-content -->
 </main>
 
 <footer>
@@ -2199,6 +2330,16 @@
 <script>
 // ゴミ箱（グローバル）
 const trash = [];
+
+// ── フォルダ管理 ──────────────────────────────────────
+// folders: [{ id, name, parentId, expanded }]
+// folderStates: { folderId: { files, pageOrder, annotations, groupNames, trash } }
+let folders = [];
+let folderStates = {};
+let currentFolderId = null;
+
+// IndexedDB フォルダ保存
+
 
 document.addEventListener("DOMContentLoaded", function() {
 // ライブラリが未定義の場合のフォールバック読み込み
@@ -3024,10 +3165,14 @@ function refreshUI() {
   const usedFileIds = new Set(state.pageOrder.map(p => p.fileId));
   state.files = state.files.filter(f => usedFileIds.has(f.id));
 
-  if (state.files.length === 0) {
+  if (state.files.length === 0 && !currentFolderId) {
+    // フォルダ未選択（初回起動時など）のみホーム画面
     emptyState.style.display = 'flex';
     workspace.style.display = 'none';
     document.body.classList.add('empty-state-on');
+    document.getElementById('folder-sidebar').style.display = 'none';
+    document.getElementById('main-content')?.style.setProperty('padding', '0');
+    document.getElementById('main-content')?.style.setProperty('overflow', 'hidden');
     document.getElementById('btn-export').disabled = true;
     document.getElementById('btn-sort').disabled = true;
     outputInfo.textContent = '—';
@@ -3036,7 +3181,10 @@ function refreshUI() {
   emptyState.style.display = 'none';
   workspace.style.display = 'block';
   document.body.classList.remove('empty-state-on');
-  document.getElementById('btn-sort').disabled = false;
+  document.getElementById('folder-sidebar').style.display = 'flex';
+  document.getElementById('main-content')?.style.setProperty('padding', '32px 40px');
+  document.getElementById('main-content')?.style.setProperty('overflow-y', 'auto');
+  document.getElementById('btn-sort').disabled = state.files.length === 0;
 
   const included = state.pageOrder.filter(p => p.included).length;
   document.getElementById('section-count').textContent =
@@ -3101,6 +3249,12 @@ function renderPageMode() {
       + (state.selectedPageIdxs.has(item.repIdx) ? ' selected' : '');
     card.dataset.idx = item.repIdx;
     card.dataset.rotation = entry.rotation || 0;
+    // フォルダへのドロップ用HTML5ドラッグ
+    card.draggable = true;
+    card.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ ...entry }));
+      e.dataTransfer.effectAllowed = 'copy';
+    });
     if (item.isGroup) {
       card.dataset.group = item.groupId;
       const col = groupColors[item.groupId];
@@ -4780,7 +4934,7 @@ function rotateAnnotationsForEntry(entry, deg, W, H) {
   };
 
   for (const a of anns) {
-    if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'circle' || a.type === 'triangle' || a.type === 'circle' || a.type === 'triangle') {
+    if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'image' || a.type === 'circle' || a.type === 'triangle' || a.type === 'circle' || a.type === 'triangle') {
       // 矩形：左上と右下を計算してから新しい矩形に
       const x1 = a.x, y1 = a.y;
       const x2 = a.x + a.w, y2 = a.y + a.h;
@@ -5195,6 +5349,7 @@ async function actDelete() {
 // 複製
 // クリップボード（ページコピー用）
 let pageClipboard = [];
+let pageClipboardFiles = []; // コピー元のファイルデータ（フォルダ間ペースト用）
 
 function actCopyPages() {
   if (state.selectedPageIdxs.size === 0) return;
@@ -5211,6 +5366,11 @@ function actCopyPages() {
   });
   const sortedIdxs = [...allIdxs].sort((a, b) => a - b);
   pageClipboard = sortedIdxs.map(idx => ({ ...state.pageOrder[idx] }));
+  // フォルダ間ペースト用にファイルデータも保持
+  const fileIds = new Set(pageClipboard.map(p => p.fileId));
+  pageClipboardFiles = state.files
+    .filter(f => fileIds.has(f.id))
+    .map(f => ({ id: f.id, name: f.name, size: f.size, bytes: f.bytes, thumbnail: f.thumbnail, pageCount: f.pageCount, lastModified: f.lastModified }));
   if (typeof statusText !== 'undefined') statusText.textContent = `${pageClipboard.length}ページをコピーしました`;
 }
 
@@ -5219,8 +5379,23 @@ function actPastePages(targetGroupId = null) {
   const newIdxs = [];
   const newEntries = [];
 
-  // グループIDの再マッピング（元のgroupIdを新しいgroupIdに変換）
-  const groupIdMap = new Map();
+  // フォルダ間ペースト：コピー元ファイルが現在のフォルダにない場合は追加（同期的に待つ）
+  const fileAddPromises = [];
+  if (pageClipboardFiles && pageClipboardFiles.length > 0) {
+    pageClipboardFiles.forEach(clipFile => {
+      const exists = state.files.some(f => f.id === clipFile.id);
+      if (!exists && clipFile.bytes) {
+        fileAddPromises.push(
+          pdfjsLib.getDocument({ data: clipFile.bytes.slice(0) }).promise.then(pdf => {
+            state.files.push({ ...clipFile, pdf });
+          }).catch(e => console.warn('ファイル追加失敗:', e))
+        );
+      }
+    });
+  }
+
+  const doActualPaste = () => {
+    const groupIdMap = new Map();
   pageClipboard.forEach(original => {
     if (original.groupId && !groupIdMap.has(original.groupId)) {
       groupIdMap.set(original.groupId, 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6));
@@ -5243,9 +5418,20 @@ function actPastePages(targetGroupId = null) {
     if (state.annotations[original.uid]) {
       state.annotations[newUid] = state.annotations[original.uid].map(a => ({ ...deepCloneAnnotation(a), id: Date.now() + Math.random() }));
     }
-    state.pageOrder.push(copy);
-    newIdxs.push(state.pageOrder.length - 1);
-    newEntries.push({ entry: copy, original });
+    // targetGroupId指定時は束の末尾に挿入（束内の順序を保つ）
+    if (targetGroupId !== null && newGroupId) {
+      let insertAt = state.pageOrder.length;
+      for (let i = state.pageOrder.length - 1; i >= 0; i--) {
+        if (state.pageOrder[i].groupId === newGroupId) { insertAt = i + 1; break; }
+      }
+      state.pageOrder.splice(insertAt, 0, copy);
+      newIdxs.push(insertAt);
+      newEntries.push({ entry: copy, original });
+    } else {
+      state.pageOrder.push(copy);
+      newIdxs.push(state.pageOrder.length - 1);
+      newEntries.push({ entry: copy, original });
+    }
   });
   state.selectedPageIdxs.clear();
   // 束の場合はrepIdx（先頭ページ）だけ選択状態に
@@ -5287,6 +5473,14 @@ function actPastePages(targetGroupId = null) {
   }
   scheduleSave();
   if (typeof statusText !== 'undefined') statusText.textContent = `${pageClipboard.length}ページをペーストしました`;
+  }; // end doActualPaste
+
+  // ファイル追加が必要な場合は待ってから実行、なければ即実行
+  if (fileAddPromises.length > 0) {
+    Promise.all(fileAddPromises).then(() => doActualPaste());
+  } else {
+    doActualPaste();
+  }
 }
 
 function actDuplicate() {
@@ -5830,7 +6024,20 @@ document.addEventListener('keydown', e => {
   }
   // Ctrl+C: コピー
   if ((e.ctrlKey || e.metaKey) && k === 'c') {
-    if (!state.expandedGroupId && state.selectedPageIdxs.size > 0) {
+    // 注釈選択中は注釈コピー（annOnKeydownで処理）
+    if (state.annSelectedId) return;
+    if (state.expandedGroupId) {
+      // ビューア表示中 → 現在表示中ページをコピー
+      const members = getExpandedMembers();
+      const m = members[state.viewerMemberIdx];
+      if (m) {
+        e.preventDefault();
+        pageClipboard = [{ ...m.p }];
+        if (typeof statusText !== 'undefined') statusText.textContent = '1ページをコピーしました';
+      }
+      return;
+    }
+    if (state.selectedPageIdxs.size > 0) {
       e.preventDefault();
       actCopyPages();
       return;
@@ -5842,6 +6049,7 @@ document.addEventListener('keydown', e => {
       e.preventDefault();
       const groupId = state.expandedGroupId || null;
       actPastePages(groupId);
+      if (state.expandedGroupId) renderExpansionModal();
       return;
     }
   }
@@ -6094,6 +6302,15 @@ function annOnMouseDown(e, overlay, entry) {
     return;
   }
 
+  // キャプチャツール
+  if (state.tool === 'capture') {
+    annDrawing = true;
+    annStartX = p.x;
+    annStartY = p.y;
+    annCurrentShape = { type: 'capture', x: p.x, y: p.y, w: 0, h: 0 };
+    return;
+  }
+
   // 図形類
   annDrawing = true;
   annStartX = p.x;
@@ -6132,7 +6349,7 @@ function annOnMouseMove(e, overlay, entry) {
       const orig = annDragOffset.orig;
       const handle = annDragOffset.handle;
       // 矩形系のリサイズ
-      if (ann.type === 'rect' || ann.type === 'highlight' || ann.type === 'stamp' || ann.type === 'circle' || ann.type === 'triangle') {
+      if (ann.type === 'rect' || ann.type === 'highlight' || ann.type === 'stamp' || ann.type === 'image' || ann.type === 'circle' || ann.type === 'triangle') {
         // orig の左上(x,y)・幅・高さ。orig.w/h は負の場合もあるが、まず正規化
         const ox1 = Math.min(orig.x, orig.x + orig.w);
         const oy1 = Math.min(orig.y, orig.y + orig.h);
@@ -6143,12 +6360,11 @@ function annOnMouseMove(e, overlay, entry) {
         if (handle.includes('e')) nx2 = p.x;
         if (handle.includes('n')) ny1 = p.y;
         if (handle.includes('s')) ny2 = p.y;
-        // 印鑑は4隅でアスペクト維持、辺中央は使わず
+        // 印鑑は4隅でアスペクト維持
         if (ann.type === 'stamp' && (handle === 'nw' || handle === 'ne' || handle === 'sw' || handle === 'se')) {
           const ratio = (ox2 - ox1) / (oy2 - oy1);
           const newW = Math.abs(nx2 - nx1);
           const newH = Math.abs(ny2 - ny1);
-          // 大きい変化を優先
           if (newW / ratio > newH) {
             const adjH = newW / ratio;
             if (handle.includes('n')) ny1 = ny2 - adjH;
@@ -6158,6 +6374,16 @@ function annOnMouseMove(e, overlay, entry) {
             if (handle.includes('w')) nx1 = nx2 - adjW;
             else nx2 = nx1 + adjW;
           }
+        }
+        // Shift: 正方形・正円に固定（4隅ハンドルのみ）
+        if (e.shiftKey && ann.type !== 'stamp' && (handle === 'nw' || handle === 'ne' || handle === 'sw' || handle === 'se')) {
+          const newW = Math.abs(nx2 - nx1);
+          const newH = Math.abs(ny2 - ny1);
+          const size = Math.max(newW, newH);
+          if (handle.includes('w')) nx1 = nx2 - size;
+          else nx2 = nx1 + size;
+          if (handle.includes('n')) ny1 = ny2 - size;
+          else ny2 = ny1 + size;
         }
         ann.x = Math.min(nx1, nx2);
         ann.y = Math.min(ny1, ny2);
@@ -6194,8 +6420,18 @@ function annOnMouseMove(e, overlay, entry) {
   }
 
   if (annCurrentShape) {
-    annCurrentShape.w = p.x - annStartX;
-    annCurrentShape.h = p.y - annStartY;
+    let dw = p.x - annStartX;
+    let dh = p.y - annStartY;
+    // Shift: 正方形・正円に固定
+    if (e.shiftKey && (annCurrentShape.type === 'rect' || annCurrentShape.type === 'circle' || annCurrentShape.type === 'triangle')) {
+      const size = Math.sign(dw) * Math.sign(dh) >= 0
+        ? Math.max(Math.abs(dw), Math.abs(dh))
+        : Math.min(Math.abs(dw), Math.abs(dh));
+      dw = Math.sign(dw || 1) * size;
+      dh = Math.sign(dh || 1) * size;
+    }
+    annCurrentShape.w = dw;
+    annCurrentShape.h = dh;
     annCurrentShape.x2 = p.x;
     annCurrentShape.y2 = p.y;
     drawAllAnnotations(entry);
@@ -6209,6 +6445,69 @@ function annOnMouseUp(e, overlay, entry) {
     annDragOffset = null;
     return;
   }
+
+  // キャプチャツール：範囲をPDFページから切り取って画像注釈として配置
+  if (state.tool === 'capture' && annCurrentShape) {
+    const s = annCurrentShape;
+    annCurrentShape = null;
+    drawAllAnnotations(entry);
+    const x = Math.min(s.x, s.x + s.w);
+    const y = Math.min(s.y, s.y + s.h);
+    const w = Math.abs(s.w);
+    const h = Math.abs(s.h);
+    if (w < 4 || h < 4) return;
+    // overlayと同じスケールでPDFページを描画してキャプチャ
+    (async () => {
+      try {
+        const file = state.files.find(f => f.id === entry.fileId);
+        if (!file) return;
+        const pdf = file._viewerPdf ? await file._viewerPdf : file.pdf;
+        const page = await pdf.getPage(entry.pageNum);
+        const baseVp = page.getViewport({ scale: 1, rotation: 0 });
+        const viewerScale = (entry._viewerScale) || Math.min(3.0, 1100 / baseVp.height);
+        const rotation = entry.rotation || 0;
+        const vp = page.getViewport({ scale: viewerScale, rotation });
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = Math.round(vp.width);
+        offCanvas.height = Math.round(vp.height);
+        const ctx = offCanvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        // 既存注釈も重ねて描画
+        const anns = getEntryAnnotations(entry);
+        const ratioX = offCanvas.width / overlay.width;
+        const ratioY = offCanvas.height / overlay.height;
+        ctx.save();
+        ctx.scale(ratioX, ratioY);
+        anns.forEach(a => { if (!a._editing) annDraw(ctx, a); });
+        ctx.restore();
+        // 指定範囲を切り取り
+        const cropCanvas = document.createElement('canvas');
+        const cropX = Math.round(x * ratioX);
+        const cropY = Math.round(y * ratioY);
+        const cropW = Math.round(w * ratioX);
+        const cropH = Math.round(h * ratioY);
+        cropCanvas.width = cropW;
+        cropCanvas.height = cropH;
+        cropCanvas.getContext('2d').drawImage(offCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        const dataUrl = cropCanvas.toDataURL('image/png');
+        // 画像注釈として配置
+        const newAnn = {
+          id: Date.now() + Math.random(),
+          type: 'image',
+          x, y, w, h,
+          dataUrl,
+        };
+        getEntryAnnotations(entry).push(newAnn);
+        state.annSelectedId = newAnn.id;
+        drawAllAnnotations(entry);
+        switchToSelectTool();
+      } catch (err) {
+        console.warn('キャプチャ失敗:', err);
+      }
+    })();
+    return;
+  }
+
   if (annCurrentShape) {
     const s = annCurrentShape;
     let placed = false;
@@ -6451,7 +6750,7 @@ function switchToSelectTool() {
 
 // ヒット判定
 function annHitTest(a, p) {
-  if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'circle' || a.type === 'triangle') {
+  if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'image' || a.type === 'circle' || a.type === 'triangle') {
     const x1 = Math.min(a.x, a.x + a.w);
     const x2 = Math.max(a.x, a.x + a.w);
     const y1 = Math.min(a.y, a.y + a.h);
@@ -6556,6 +6855,22 @@ function drawAllAnnotations(entry) {
   const anns = getEntryAnnotations(entry);
   anns.forEach(a => { if (!a._editing) annDraw(ctx, a); });
   if (annCurrentShape) annDraw(ctx, annCurrentShape);
+  // キャプチャツールのドラッグ中プレビュー（破線矩形）
+  if (state.tool === 'capture' && annCurrentShape && annCurrentShape.type === 'capture') {
+    const s = annCurrentShape;
+    const x = Math.min(s.x, s.x + s.w);
+    const y = Math.min(s.y, s.y + s.h);
+    const w = Math.abs(s.w);
+    const h = Math.abs(s.h);
+    ctx.save();
+    ctx.strokeStyle = '#2196f3';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 3]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(33,150,243,0.08)';
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+  }
   // 作成中の多角形プレビュー
   if (polygonPoints && polygonPoints.length > 0) {
     drawPolygonPreview(ctx);
@@ -6815,6 +7130,21 @@ function annDraw(ctx, a) {
       ctx.stroke();
       drawHead(a.x2, a.y2, angle);
     }
+  } else if (a.type === 'image') {
+    // キャプチャ画像注釈
+    if (a.dataUrl) {
+      const img = getStampImage(a.dataUrl);
+      ctx.save();
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, a.x, a.y, a.w, a.h);
+      } else {
+        img.onload = () => drawAllAnnotations(annCurrentEntry);
+        ctx.strokeStyle = '#aaa';
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(a.x, a.y, a.w, a.h);
+      }
+      ctx.restore();
+    }
   } else if (a.type === 'stamp') {
     const stamp = state.stamps.find(s => s.id === a.stampId);
     if (stamp) {
@@ -6928,7 +7258,7 @@ function annDrawSelection(ctx, a) {
   ctx.lineWidth = 1.5;
   ctx.setLineDash([5, 4]);
   let x1, y1, x2, y2;
-  if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'circle' || a.type === 'triangle') {
+  if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'image' || a.type === 'circle' || a.type === 'triangle') {
     x1 = Math.min(a.x, a.x+a.w); y1 = Math.min(a.y, a.y+a.h);
     x2 = Math.max(a.x, a.x+a.w); y2 = Math.max(a.y, a.y+a.h);
     ctx.strokeRect(x1, y1, x2-x1, y2-y1);
@@ -7028,7 +7358,7 @@ function drawEndpointHandles(ctx, points) {
 function detectHandle(a, p) {
   const canvasToScreen = getCanvasToScreen();
   const TOL = Math.max(6, 10 / canvasToScreen);
-  if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'circle' || a.type === 'triangle') {
+  if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'image' || a.type === 'circle' || a.type === 'triangle') {
     const x1 = Math.min(a.x, a.x+a.w);
     const y1 = Math.min(a.y, a.y+a.h);
     const x2 = Math.max(a.x, a.x+a.w);
@@ -7385,6 +7715,7 @@ function buildAnnToolRow() {
     { id: 'polygon', title: '多角形 (P)', svg: '<path d="M12 3l9 7-3 11h-12l-3-11z"/>' },
     { id: 'highlight', title: '蛍光 (H)', svg: '<path d="M3 21h18M7 17l-2 4h4l6-12-4-2z"/>' },
     { id: 'stamp', title: '印鑑 (S)', svg: '<circle cx="12" cy="9" r="5"/><path d="M5 21h14M7 18h10v3H7z"/>' },
+    { id: 'capture', title: 'キャプチャ：範囲をドラッグして画像として貼り付け', svg: '<path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2"/><rect x="8" y="8" width="8" height="8" rx="1"/>' },
   ];
   tools.forEach(t => {
     const btn = document.createElement('button');
@@ -7424,15 +7755,13 @@ function buildAnnToolRow() {
     if (t.id === 'select') {
       // 区切り
       row.appendChild((() => { const d = document.createElement('div'); d.className='ann-tool-divider'; return d; })());
-
-      // 戻る（ボード履歴と共通）
+      // 戻る
       const undoBtn = document.createElement('button');
       undoBtn.className = 'ann-tool';
       undoBtn.title = '戻る (Ctrl+Z)';
       undoBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12h12a4 4 0 010 8H8M3 12l4-4M3 12l4 4"/></svg>';
       undoBtn.addEventListener('click', () => doUndo());
       row.appendChild(undoBtn);
-
       // 進む
       const redoBtn = document.createElement('button');
       redoBtn.className = 'ann-tool';
@@ -7440,29 +7769,12 @@ function buildAnnToolRow() {
       redoBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12H9a4 4 0 000 8h7M21 12l-4-4M21 12l-4 4"/></svg>';
       redoBtn.addEventListener('click', () => doRedo());
       row.appendChild(redoBtn);
-
       // 区切り
       row.appendChild((() => { const d = document.createElement('div'); d.className='ann-tool-divider'; return d; })());
     }
   });
 
-  // 区切り
-  row.appendChild((() => { const d = document.createElement('div'); d.className='ann-tool-divider'; return d; })());
 
-  // Undo (現在ページの最後の注釈を取り消す)
-  const undoBtn = document.createElement('button');
-  undoBtn.className = 'ann-tool';
-  undoBtn.title = '取消し (Ctrl+Z)';
-  undoBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h12a4 4 0 010 8H8M3 12l4-4M3 12l4 4"/></svg>';
-  undoBtn.addEventListener('click', () => {
-    if (!annCurrentEntry) return;
-    const anns = getEntryAnnotations(annCurrentEntry);
-    if (anns.length) {
-      anns.pop();
-      drawAllAnnotations(annCurrentEntry);
-    }
-  });
-  row.appendChild(undoBtn);
 
   // 注釈削除（選択中の注釈を）
   const delBtn = document.createElement('button');
@@ -9704,15 +10016,11 @@ function showViewerContextMenu(e, memberIdx) {
       label: 'コピー',
       icon: CTX_ICONS.copy,
       action: () => {
-        // ビューア内の現在ページをコピー
-        const entry = annCurrentEntry;
-        if (entry) {
-          const idx = state.pageOrder.indexOf(entry);
-          if (idx >= 0) {
-            state.selectedPageIdxs.clear();
-            state.selectedPageIdxs.add(idx);
-            actCopyPages();
-          }
+        // 右クリックしたページ(memberIdx)を1ページだけコピー
+        const m = members[memberIdx];
+        if (m) {
+          pageClipboard = [{ ...m.p }];
+          if (typeof statusText !== 'undefined') statusText.textContent = '1ページをコピーしました';
         }
       },
     },
@@ -9720,9 +10028,12 @@ function showViewerContextMenu(e, memberIdx) {
       label: 'ペースト',
       icon: CTX_ICONS.copy,
       action: () => {
-        const entry = annCurrentEntry;
-        const groupId = entry ? entry.groupId : null;
+        // 同じ束の末尾にペースト
+        const m = members[memberIdx];
+        const groupId = m ? m.p.groupId : null;
         actPastePages(groupId);
+        // ビューアを再レンダリング
+        renderExpansionModal();
       },
     }] : []),
     ...(annClipboard ? [{
@@ -10124,6 +10435,247 @@ function openDB() {
   });
 }
 
+async function saveFoldersToDB() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.put(JSON.parse(JSON.stringify(folders)), 'folders_meta');
+  } catch(e) { console.warn('フォルダ保存失敗:', e); }
+}
+
+async function saveFolderStateToDB(folderId, snap) {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.put(snap, 'folder_' + folderId);
+  } catch(e) { console.warn('フォルダstate保存失敗:', e); }
+}
+
+async function loadFoldersFromDB() {
+  try {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const r = store.get('folders_meta');
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => resolve(null);
+    });
+  } catch(e) { return null; }
+}
+
+async function loadFolderStateFromDB(folderId) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const r = store.get('folder_' + folderId);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => resolve(null);
+    });
+  } catch(e) { return null; }
+}
+
+function createFolder(name, parentId = null) {
+  const id = 'folder_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  folders.push({ id, name, parentId, expanded: true });
+  folderStates[id] = { files: [], pageOrder: [], annotations: {}, groupNames: {}, trash: [] };
+  saveFoldersToDB();
+  renderFolderTree();
+  return id;
+}
+
+function deleteFolder(id) {
+  // 子フォルダも再帰削除
+  const children = folders.filter(f => f.parentId === id);
+  children.forEach(c => deleteFolder(c.id));
+  folders = folders.filter(f => f.id !== id);
+  delete folderStates[id];
+  if (currentFolderId === id) {
+    const first = folders[0];
+    if (first) switchFolder(first.id);
+    else { currentFolderId = null; renderFolderTree(); }
+  } else {
+    saveFoldersToDB();
+    renderFolderTree();
+  }
+}
+
+function renameFolder(id, newName) {
+  const f = folders.find(f => f.id === id);
+  if (f) { f.name = newName; saveFoldersToDB(); renderFolderTree(); }
+}
+
+async function switchFolder(id) {
+  if (currentFolderId === id) {
+    renderFolderTree();
+    return;
+  }
+  try {
+    // 現在の状態を保存
+    if (currentFolderId) {
+      folderStates[currentFolderId] = buildFolderSnapshot();
+      await saveFolderStateToDB(currentFolderId, folderStates[currentFolderId]);
+    }
+    currentFolderId = id;
+    localStorage.setItem('lastFolderId', id);
+    // 新フォルダの状態を復元
+    const snap = folderStates[id] || { files: [], pageOrder: [], annotations: {}, groupNames: {}, trash: [] };
+    await restoreFolderSnapshot(snap);
+    await saveFoldersToDB();
+    renderFolderTree();
+  } catch(e) {
+    console.error('フォルダ切り替えエラー:', e);
+    renderFolderTree();
+  }
+}
+
+// フォルダツリーのレンダリング
+function renderFolderTree() {
+  const tree = document.getElementById('folder-tree');
+  if (!tree) return;
+  tree.innerHTML = '';
+
+  // アクティブフォルダ名をヘッダーに反映
+  const activeFolder = folders.find(f => f.id === currentFolderId);
+  const heading = document.getElementById('section-heading');
+  if (heading) heading.textContent = activeFolder ? activeFolder.name : 'PAGE MAP';
+
+  function renderNode(parentId, depth) {
+    const children = folders.filter(f => f.parentId === parentId || (parentId === null && !f.parentId));
+    children.forEach(folder => {
+      const item = document.createElement('div');
+      item.className = 'folder-item' + (folder.id === currentFolderId ? ' active' : '');
+      item.style.paddingLeft = (10 + depth * 16) + 'px';
+      item.dataset.folderId = folder.id;
+
+      // トグル
+      const hasChildren = folders.some(f => f.parentId === folder.id);
+      const toggle = document.createElement('span');
+      toggle.className = 'folder-toggle';
+      toggle.textContent = hasChildren ? (folder.expanded ? '▾' : '▸') : '';
+      toggle.addEventListener('click', e => {
+        e.stopPropagation();
+        folder.expanded = !folder.expanded;
+        renderFolderTree();
+        saveFoldersToDB();
+      });
+
+      const icon = document.createElement('span');
+      icon.className = 'folder-icon';
+      icon.textContent = folder.id === currentFolderId ? '📂' : '📁';
+
+      const name = document.createElement('span');
+      name.className = 'folder-name';
+      name.textContent = folder.name;
+
+      // メニューボタン
+      const menuBtn = document.createElement('button');
+      menuBtn.className = 'folder-menu-btn';
+      menuBtn.textContent = '⋯';
+      menuBtn.title = 'フォルダメニュー';
+      menuBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        showFolderMenu(e, folder.id);
+      });
+
+      item.appendChild(toggle);
+      item.appendChild(icon);
+      item.appendChild(name);
+      item.appendChild(menuBtn);
+
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.folder-menu-btn') || e.target.closest('.folder-toggle')) return;
+        switchFolder(folder.id);
+      });
+      item.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        startRenameFolder(folder.id);
+      });
+
+      // ドロップターゲット（カードをフォルダにドロップして移動）
+      item.addEventListener('dragover', e => { e.preventDefault(); item.classList.add('active'); });
+      item.addEventListener('dragleave', () => { if (folder.id !== currentFolderId) item.classList.remove('active'); });
+      item.addEventListener('drop', e => {
+        e.preventDefault();
+        const data = e.dataTransfer.getData('text/plain');
+        if (data) tryCopyPageToFolder(JSON.parse(data), folder.id);
+        if (folder.id !== currentFolderId) item.classList.remove('active');
+      });
+
+      tree.appendChild(item);
+      if (folder.expanded) renderNode(folder.id, depth + 1);
+    });
+  }
+  renderNode(null, 0);
+}
+
+function showFolderMenu(e, folderId) {
+  const folder = folders.find(f => f.id === folderId);
+  if (!folder) return;
+  const items = [
+    { label: 'リネーム', action: () => startRenameFolder(folderId) },
+    { label: 'サブフォルダを追加', action: () => { const id = createFolder('新しいフォルダ', folderId); startRenameFolder(id); } },
+    'divider',
+    { label: '削除', danger: true, action: () => {
+      if (confirm(`「${folder.name}」を削除しますか？`)) deleteFolder(folderId);
+    }},
+  ];
+  showCtxMenu(e.clientX, e.clientY, items);
+}
+
+function startRenameFolder(id) {
+  renderFolderTree();
+  const item = document.querySelector(`.folder-item[data-folder-id="${id}"]`);
+  if (!item) return;
+  const nameSpan = item.querySelector('.folder-name');
+  if (!nameSpan) return;
+  const folder = folders.find(f => f.id === id);
+  const input = document.createElement('input');
+  input.className = 'folder-name-input';
+  input.value = folder.name;
+  nameSpan.replaceWith(input);
+  input.focus();
+  input.select();
+  const finish = () => {
+    const newName = input.value.trim() || folder.name;
+    renameFolder(id, newName);
+  };
+  input.addEventListener('blur', finish);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(); else if (e.key === 'Escape') renderFolderTree(); });
+}
+
+// ページをコピーして別フォルダに移動
+function tryCopyPageToFolder(pageData, targetFolderId) {
+  if (targetFolderId === currentFolderId) return;
+  // 現在のフォルダ状態を保存
+  if (currentFolderId) {
+    folderStates[currentFolderId] = buildFolderSnapshot();
+    saveFolderStateToDB(currentFolderId, folderStates[currentFolderId]);
+  }
+  // ターゲットフォルダに追記
+  const targetSnap = folderStates[targetFolderId] || { files: [], pageOrder: [], annotations: {}, groupNames: {}, trash: [] };
+  // ファイルがなければ追加
+  const existingFile = targetSnap.files.find(f => f.id === pageData.fileId);
+  if (!existingFile) {
+    const srcFile = state.files.find(f => f.id === pageData.fileId);
+    if (srcFile) {
+      targetSnap.files.push({ id: srcFile.id, name: srcFile.name, size: srcFile.size, bytes: srcFile.bytes, thumbnail: srcFile.thumbnail, pageCount: srcFile.pageCount, lastModified: srcFile.lastModified });
+    }
+  }
+  const newUid = 'pg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  targetSnap.pageOrder.push({ ...pageData, uid: newUid, groupId: null, x: 40, y: 40 });
+  folderStates[targetFolderId] = targetSnap;
+  saveFolderStateToDB(targetFolderId, targetSnap);
+  statusText.textContent = `別フォルダにコピーしました`;
+}
+
+
+
+
 // ファイルのハッシュキー（name+size+lastModified）
 function fileThumbKey(file, pageNum, rotation) {
   return `${file.name}_${file.size}_${file.lastModified}_p${pageNum}_r${rotation}_s2`;
@@ -10274,20 +10826,83 @@ async function restoreStateFromSnapshot(snap) {
 // 自動保存（デバウンス）
 let saveTimer = null;
 let lastSaveTime = 0;
+function buildFolderSnapshot() {
+  return {
+    files: state.files.map(f => ({ id: f.id, name: f.name, size: f.size, bytes: f.bytes, thumbnail: f.thumbnail, pageCount: f.pageCount, lastModified: f.lastModified })),
+    pageOrder: state.pageOrder.map(p => ({...p})),
+    annotations: JSON.parse(JSON.stringify(state.annotations)),
+    groupNames: {...state.groupNames},
+    trash: trash.map(t => ({ file: { id: t.file.id, name: t.file.name, size: t.file.size, bytes: t.file.bytes, thumbnail: t.file.thumbnail, pageCount: t.file.pageCount }, pages: t.pages.map(p => ({...p})) })),
+  };
+}
+
+async function restoreFolderSnapshot(snap) {
+  // IDを新規発行して重複解消（restoreStateFromSnapshotと同じロジック）
+  const idRemap = [];
+  for (const f of (snap.files || [])) {
+    const newId = 'f_' + crypto.randomUUID().replace(/-/g,'');
+    idRemap.push({ oldId: f.id, newId, pageCount: f.pageCount || 0 });
+  }
+  const remapCursor = {};
+  const pageOrderFixed = (snap.pageOrder || []).map(p => {
+    const entries = idRemap.filter(r => r.oldId === p.fileId);
+    if (entries.length === 0) return {...p};
+    if (!remapCursor[p.fileId]) remapCursor[p.fileId] = { remapIdx: 0, usedCount: 0 };
+    const c = remapCursor[p.fileId];
+    const entry = entries[c.remapIdx] || entries[entries.length - 1];
+    const result = {...p, fileId: entry.newId};
+    c.usedCount++;
+    if (c.usedCount >= entry.pageCount && c.remapIdx < entries.length - 1) { c.remapIdx++; c.usedCount = 0; }
+    return result;
+  });
+  state.files = [];
+  pageThumbCache.clear();
+  for (let i = 0; i < (snap.files || []).length; i++) {
+    const f = snap.files[i];
+    const newId = idRemap[i]?.newId || f.id;
+    try {
+      const pdf = await pdfjsLib.getDocument({ data: f.bytes.slice(0) }).promise;
+      const vPdf = pdfjsLib.getDocument({ data: f.bytes.slice(0) }).promise;
+      state.files.push({ ...f, id: newId, pdf, _viewerPdf: vPdf, lastModified: f.lastModified || Date.now() });
+    } catch(e) { console.warn('フォルダ復元失敗:', f.name, e); }
+  }
+  state.pageOrder = pageOrderFixed;
+  state.annotations = JSON.parse(JSON.stringify(snap.annotations || {}));
+  state.groupNames = snap.groupNames || {};
+  trash.length = 0;
+  for (const t of (snap.trash || [])) {
+    try {
+      const pdf = await pdfjsLib.getDocument({ data: t.file.bytes.slice(0) }).promise;
+      const newId = 'f_' + crypto.randomUUID().replace(/-/g,'');
+      trash.push({ file: { ...t.file, id: newId, pdf }, pages: (t.pages || []).map(p => ({...p, fileId: newId})) });
+    } catch(_) {}
+  }
+  state.selectedPageIdxs.clear();
+  state.expandedGroupId = null;
+  refreshUI();
+  updateTrashUI();
+}
+
+
 function scheduleSave(immediate = false) {
   if (saveTimer) clearTimeout(saveTimer);
   const delay = immediate ? 0 : 300;
   saveTimer = setTimeout(async () => {
     saveTimer = null;
-    if (state.files.length === 0 && trash.length === 0) {
-      try {
-        await clearStateFromDB();
-      } catch (_) {}
-      return;
-    }
     try {
-      const snap = buildStateSnapshot();
-      await saveStateToDB(snap);
+      // フォルダモードの保存
+      if (currentFolderId) {
+        const snap = buildFolderSnapshot();
+        folderStates[currentFolderId] = snap;
+        await saveFolderStateToDB(currentFolderId, snap);
+        saveFoldersToDB();
+        localStorage.setItem('lastFolderId', currentFolderId);
+      }
+      // 従来の保存も維持（互換性）
+      if (state.files.length > 0 || trash.length > 0) {
+        const snap = buildStateSnapshot();
+        await saveStateToDB(snap);
+      }
       lastSaveTime = Date.now();
       const t = new Date(lastSaveTime);
       const hh = String(t.getHours()).padStart(2, '0');
@@ -10410,34 +11025,77 @@ setInterval(() => {
 
 // 起動時に復元
 window.addEventListener('DOMContentLoaded', async () => {
-  try {
-    const snap = await loadStateFromDB();
-    if (snap && ((snap.files && snap.files.length > 0) || (snap.trash && snap.trash.length > 0))) {
-      statusText.textContent = '前回の作業を復元中...';
-      const ok = await restoreStateFromSnapshot(snap);
-      if (ok) {
-        const t = new Date(snap.savedAt);
-        const hh = String(t.getHours()).padStart(2, '0');
-        const mm = String(t.getMinutes()).padStart(2, '0');
-        statusText.textContent = `前回の作業を復元 (${hh}:${mm} 時点)`;
-        setTimeout(() => {
-          state.pageOrder.forEach(entry => {
-            const anns = getEntryAnnotations(entry);
-            if (anns.length > 0) {
-              refreshThumbWithAnnotations(entry);
-            }
-          });
-        }, 2000);
+  // フォルダメタを読み込み
+  const savedFolders = await loadFoldersFromDB();
+  if (savedFolders && savedFolders.length > 0) {
+    folders = savedFolders;
+    // 各フォルダのstateをロード
+    for (const f of folders) {
+      const snap = await loadFolderStateFromDB(f.id);
+      if (snap) folderStates[f.id] = snap;
+      else folderStates[f.id] = { files: [], pageOrder: [], annotations: {}, groupNames: {}, trash: [] };
+    }
+    // 前回のアクティブフォルダを復元
+    const lastFolderId = folders.find(f => f.id === (localStorage.getItem('lastFolderId')))?.id || folders[0].id;
+    currentFolderId = lastFolderId;
+    renderFolderTree();
+    statusText.textContent = '前回の作業を復元中...';
+
+    // フォルダのstateが空なら従来DBから引き継ぎ
+    const targetSnap = folderStates[currentFolderId];
+    const isEmpty = !targetSnap || ((!targetSnap.files || targetSnap.files.length === 0) && (!targetSnap.pageOrder || targetSnap.pageOrder.length === 0));
+    if (isEmpty) {
+      const legacySnap = await loadStateFromDB();
+      if (legacySnap && ((legacySnap.files && legacySnap.files.length > 0) || (legacySnap.trash && legacySnap.trash.length > 0))) {
+        await restoreStateFromSnapshot(legacySnap);
+        folderStates[currentFolderId] = buildFolderSnapshot();
+        await saveFolderStateToDB(currentFolderId, folderStates[currentFolderId]);
+      } else {
+        await restoreFolderSnapshot(targetSnap || {});
+      }
+    } else {
+      await restoreFolderSnapshot(targetSnap);
+    }
+
+    // 注釈サムネ更新
+    setTimeout(() => {
+      state.pageOrder.forEach(entry => {
+        const anns = getEntryAnnotations(entry);
+        if (anns.length > 0) refreshThumbWithAnnotations(entry);
+      });
+    }, 2000);
+    statusText.textContent = '復元完了';
+  } else {
+    // 初回：デフォルトフォルダを作成してから従来のstateを復元
+    try {
+      const snap = await loadStateFromDB();
+      const defaultId = createFolder('メイン');
+      currentFolderId = defaultId;
+      renderFolderTree();
+      if (snap && ((snap.files && snap.files.length > 0) || (snap.trash && snap.trash.length > 0))) {
+        statusText.textContent = '前回の作業を復元中...';
+        await restoreStateFromSnapshot(snap);
+        // 復元後にフォルダstateとして保存
+        folderStates[defaultId] = buildFolderSnapshot();
+        await saveFolderStateToDB(defaultId, folderStates[defaultId]);
+        statusText.textContent = '復元完了';
       } else {
         refreshUI();
       }
-    } else {
+    } catch (e) {
+      console.warn('復元失敗:', e);
+      if (folders.length === 0) createFolder('メイン');
+      currentFolderId = folders[0].id;
+      renderFolderTree();
       refreshUI();
     }
-  } catch (e) {
-    console.warn('復元失敗:', e);
-    refreshUI();
   }
+
+  // フォルダ追加ボタン
+  document.getElementById('btn-add-folder')?.addEventListener('click', () => {
+    const id = createFolder('新しいフォルダ', null); // 必ずルートに作成
+    startRenameFolder(id);
+  });
 });
 
 // btn-clear で削除する際、IndexedDBからもクリア
@@ -10446,6 +11104,18 @@ if (__originalClear) __originalClear.addEventListener('click', async () => {
   setTimeout(async () => {
     if (state.files.length === 0) {
       try { await clearStateFromDB(); } catch (_) {}
+      // フォルダメタとフォルダstateもリセット
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.delete('folders_meta');
+        for (const f of folders) store.delete('folder_' + f.id);
+      } catch(_) {}
+      folders = [];
+      folderStates = {};
+      currentFolderId = null;
+      localStorage.removeItem('lastFolderId');
     }
   }, 100);
 });
