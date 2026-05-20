@@ -2818,6 +2818,12 @@ document.addEventListener('drop', e => {
 
 async function loadFiles(files) {
   if (!files.length) return;
+  // フォルダ未選択の場合は先頭フォルダを自動選択
+  if (!currentFolderId && folders.length > 0) {
+    currentFolderId = folders[0].id;
+    localStorage.setItem('lastFolderId', currentFolderId);
+    renderFolderTree();
+  }
   statusText.textContent = `${files.length} ファイル読み込み中...`;
 
   // ファイル種別に応じて前処理
@@ -3165,8 +3171,9 @@ function refreshUI() {
   const usedFileIds = new Set(state.pageOrder.map(p => p.fileId));
   state.files = state.files.filter(f => usedFileIds.has(f.id));
 
-  if (state.files.length === 0 && !currentFolderId) {
-    // フォルダ未選択（初回起動時など）のみホーム画面
+  // どこかのフォルダにファイルがある場合はホーム画面に戻さない
+  const anyFolderHasFiles = currentFolderId && Object.values(folderStates).some(s => s && s.files && s.files.length > 0);
+  if (state.files.length === 0 && !anyFolderHasFiles) {
     emptyState.style.display = 'flex';
     workspace.style.display = 'none';
     document.body.classList.add('empty-state-on');
@@ -10837,44 +10844,24 @@ function buildFolderSnapshot() {
 }
 
 async function restoreFolderSnapshot(snap) {
-  // IDを新規発行して重複解消（restoreStateFromSnapshotと同じロジック）
-  const idRemap = [];
-  for (const f of (snap.files || [])) {
-    const newId = 'f_' + crypto.randomUUID().replace(/-/g,'');
-    idRemap.push({ oldId: f.id, newId, pageCount: f.pageCount || 0 });
-  }
-  const remapCursor = {};
-  const pageOrderFixed = (snap.pageOrder || []).map(p => {
-    const entries = idRemap.filter(r => r.oldId === p.fileId);
-    if (entries.length === 0) return {...p};
-    if (!remapCursor[p.fileId]) remapCursor[p.fileId] = { remapIdx: 0, usedCount: 0 };
-    const c = remapCursor[p.fileId];
-    const entry = entries[c.remapIdx] || entries[entries.length - 1];
-    const result = {...p, fileId: entry.newId};
-    c.usedCount++;
-    if (c.usedCount >= entry.pageCount && c.remapIdx < entries.length - 1) { c.remapIdx++; c.usedCount = 0; }
-    return result;
-  });
+  // IDはそのまま使用（毎回新規発行しない）
   state.files = [];
   pageThumbCache.clear();
-  for (let i = 0; i < (snap.files || []).length; i++) {
-    const f = snap.files[i];
-    const newId = idRemap[i]?.newId || f.id;
+  for (const f of (snap.files || [])) {
     try {
       const pdf = await pdfjsLib.getDocument({ data: f.bytes.slice(0) }).promise;
       const vPdf = pdfjsLib.getDocument({ data: f.bytes.slice(0) }).promise;
-      state.files.push({ ...f, id: newId, pdf, _viewerPdf: vPdf, lastModified: f.lastModified || Date.now() });
+      state.files.push({ ...f, pdf, _viewerPdf: vPdf, lastModified: f.lastModified || Date.now() });
     } catch(e) { console.warn('フォルダ復元失敗:', f.name, e); }
   }
-  state.pageOrder = pageOrderFixed;
+  state.pageOrder = (snap.pageOrder || []).map(p => ({...p}));
   state.annotations = JSON.parse(JSON.stringify(snap.annotations || {}));
   state.groupNames = snap.groupNames || {};
   trash.length = 0;
   for (const t of (snap.trash || [])) {
     try {
       const pdf = await pdfjsLib.getDocument({ data: t.file.bytes.slice(0) }).promise;
-      const newId = 'f_' + crypto.randomUUID().replace(/-/g,'');
-      trash.push({ file: { ...t.file, id: newId, pdf }, pages: (t.pages || []).map(p => ({...p, fileId: newId})) });
+      trash.push({ file: { ...t.file, pdf }, pages: (t.pages || []).map(p => ({...p})) });
     } catch(_) {}
   }
   state.selectedPageIdxs.clear();
@@ -10897,11 +10884,8 @@ function scheduleSave(immediate = false) {
         await saveFolderStateToDB(currentFolderId, snap);
         saveFoldersToDB();
         localStorage.setItem('lastFolderId', currentFolderId);
-      }
-      // 従来の保存も維持（互換性）
-      if (state.files.length > 0 || trash.length > 0) {
-        const snap = buildStateSnapshot();
-        await saveStateToDB(snap);
+        // フォルダモード時は従来DBをクリア（ゴミ箱復活防止）
+        try { await clearStateFromDB(); } catch(_) {}
       }
       lastSaveTime = Date.now();
       const t = new Date(lastSaveTime);
