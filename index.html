@@ -6474,14 +6474,17 @@ function annOnMouseUp(e, overlay, entry) {
         const page = await pdf.getPage(entry.pageNum);
         const baseVp = page.getViewport({ scale: 1, rotation: 0 });
         const viewerScale = (entry._viewerScale) || Math.min(3.0, 1100 / baseVp.height);
+        // 高画質キャプチャ：viewerScaleの2倍＋DPR考慮
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const captureScale = viewerScale * 2 * dpr;
         const rotation = entry.rotation || 0;
-        const vp = page.getViewport({ scale: viewerScale, rotation });
+        const vp = page.getViewport({ scale: captureScale, rotation });
         const offCanvas = document.createElement('canvas');
         offCanvas.width = Math.round(vp.width);
         offCanvas.height = Math.round(vp.height);
         const ctx = offCanvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport: vp }).promise;
-        // 既存注釈も重ねて描画
+        // 既存注釈も重ねて描画（overlay座標→captureScale座標に変換）
         const anns = getEntryAnnotations(entry);
         const ratioX = offCanvas.width / overlay.width;
         const ratioY = offCanvas.height / overlay.height;
@@ -7145,6 +7148,15 @@ function annDraw(ctx, a) {
       const img = getStampImage(a.dataUrl);
       ctx.save();
       if (img.complete && img.naturalWidth > 0) {
+        // 縮小時は高品質スムージング、等倍・拡大時はピクセルシャープ
+        const scaleX = a.w / img.naturalWidth;
+        const scaleY = a.h / img.naturalHeight;
+        if (scaleX >= 1 && scaleY >= 1) {
+          ctx.imageSmoothingEnabled = false;
+        } else {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+        }
         ctx.drawImage(img, a.x, a.y, a.w, a.h);
       } else {
         img.onload = () => drawAllAnnotations(annCurrentEntry);
@@ -9284,6 +9296,31 @@ function buildAnnPanel() {
   fontList.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
   fontList.innerHTML = '<div style="font-size:11px;color:var(--muted);font-style:italic;">範囲を選択してください</div>';
   fontSec.appendChild(fontList);
+
+  // OCR ボタン
+  const ocrDiv = document.createElement('div');
+  ocrDiv.style.cssText = 'margin-top:10px;border-top:1px solid var(--line);padding-top:10px;';
+  const ocrBtn = document.createElement('button');
+  ocrBtn.textContent = '文字を読み取る (OCR)';
+  ocrBtn.style.cssText = `
+    width:100%;padding:6px 8px;
+    border:1px solid var(--line);background:var(--paper-2);
+    color:var(--ink);cursor:pointer;font-size:11px;
+    border-radius:3px;font-family:var(--body);
+    display:flex;align-items:center;justify-content:center;gap:6px;
+  `;
+  ocrBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h4M7 12h10M7 16h6"/></svg>文字を読み取る (OCR)';
+  ocrBtn.addEventListener('mouseenter', () => ocrBtn.style.background = 'var(--paper)');
+  ocrBtn.addEventListener('mouseleave', () => ocrBtn.style.background = 'var(--paper-2)');
+  ocrBtn.addEventListener('click', () => {
+    const entry = annCurrentEntry;
+    if (!entry) { statusText.textContent = 'ページを開いてください'; return; }
+    const idx = state.pageOrder.indexOf(entry);
+    if (idx >= 0) runOCR(idx);
+  });
+  ocrDiv.appendChild(ocrBtn);
+  fontSec.appendChild(ocrDiv);
+
   panel.appendChild(fontSec);
 
   // ── 印鑑ライブラリ
@@ -10061,6 +10098,173 @@ function showViewerContextMenu(e, memberIdx) {
   ];
 
   showCtxMenu(e.clientX, e.clientY, items);
+}
+
+// ── OCR ──────────────────────────────────────────────
+let ocrEnabled = localStorage.getItem('ocrEnabled') === 'true';
+let tesseractWorker = null;
+
+async function initOCR() {
+  if (tesseractWorker) return true; // 既存Workerを使い回す
+  if (!ocrEnabled) {
+    const ok = confirm(
+      'OCR機能を使うにはTesseract.js（日本語モデル含む約15MB）をダウンロードします。\n' +
+      '初回のみ時間がかかります（通信環境による）。\nよろしいですか？'
+    );
+    if (!ok) return false;
+    ocrEnabled = true;
+    localStorage.setItem('ocrEnabled', 'true');
+  }
+  statusText.textContent = 'OCRエンジンを読み込み中...';
+  try {
+    if (!window.Tesseract) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://unpkg.com/tesseract.js@4.1.4/dist/tesseract.min.js';
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    tesseractWorker = await Tesseract.createWorker({
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          statusText.textContent = `OCR認識中... ${Math.round(m.progress * 100)}%`;
+        } else {
+          statusText.textContent = `OCR: ${m.status}`;
+        }
+      },
+    });
+    await tesseractWorker.loadLanguage('jpn+eng');
+    await tesseractWorker.initialize('jpn+eng');
+    statusText.textContent = 'OCR準備完了';
+    return true;
+  } catch(e) {
+    console.error('OCR初期化失敗:', e);
+    statusText.textContent = 'OCR読み込み失敗: ' + e.message;
+    tesseractWorker = null;
+    return false;
+  }
+}
+
+async function runOCR(pageIdx) {
+  const entry = state.pageOrder[pageIdx];
+  if (!entry) return;
+  const file = state.files.find(f => f.id === entry.fileId);
+  if (!file) return;
+
+  const ok = await initOCR();
+  if (!ok) return;
+
+  statusText.textContent = 'OCR処理中...';
+  try {
+    // PDFページを高解像度で描画
+    const pdf = file.pdf;
+    const page = await pdf.getPage(entry.pageNum);
+    const vp = page.getViewport({ scale: 4.0, rotation: entry.rotation || 0 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(vp.width);
+    canvas.height = Math.round(vp.height);
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+
+    // 前処理：グレースケール化＋コントラスト強調＋二値化
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      // グレースケール（輝度計算）
+      const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+      // コントラスト強調（係数1.5）
+      const contrasted = Math.min(255, Math.max(0, (gray - 128) * 1.5 + 128));
+      // 二値化（閾値180：白背景の文書向け）
+      const binary = contrasted > 180 ? 255 : 0;
+      d[i] = d[i+1] = d[i+2] = binary;
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // OCR実行（v4系はdataURL形式で渡す）
+    const imageDataUrl = canvas.toDataURL('image/png');
+    const { data } = await tesseractWorker.recognize(imageDataUrl);
+    const text = data.text.trim();
+
+    if (!text) {
+      statusText.textContent = 'テキストが検出されませんでした';
+      return;
+    }
+
+    // クリップボードにコピー＋結果ダイアログ
+    try {
+      await navigator.clipboard.writeText(text);
+      statusText.textContent = `OCR完了：${text.length}文字をクリップボードにコピーしました`;
+    } catch(_) {
+      statusText.textContent = 'OCR完了';
+    }
+
+    // 結果を表示するモーダル
+    showOCRResult(text);
+  } catch(e) {
+    console.error('OCR失敗:', e);
+    statusText.textContent = 'OCR処理に失敗しました';
+  }
+}
+
+function showOCRResult(text) {
+  const existing = document.getElementById('ocr-result-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'ocr-result-modal';
+  modal.style.cssText = `
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3); z-index: 99999;
+    width: 520px; max-width: 90vw; max-height: 70vh;
+    display: flex; flex-direction: column; overflow: hidden;
+    font-family: var(--body);
+  `;
+
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);';
+  header.innerHTML = '<span style="font-weight:600;font-size:13px;">OCR 読み取り結果</span>';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:16px;color:var(--muted);padding:2px 6px;';
+  closeBtn.addEventListener('click', () => modal.remove());
+  header.appendChild(closeBtn);
+
+  const body = document.createElement('div');
+  body.style.cssText = 'flex:1;overflow-y:auto;padding:16px;';
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.cssText = 'width:100%;height:260px;resize:vertical;border:1px solid var(--line);border-radius:4px;padding:8px;font-size:12px;font-family:var(--mono);line-height:1.6;background:var(--paper-2);color:var(--ink);box-sizing:border-box;';
+  body.appendChild(textarea);
+
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line);';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.textContent = 'クリップボードにコピー';
+  copyBtn.style.cssText = 'padding:6px 14px;background:var(--accent);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;';
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(textarea.value);
+      copyBtn.textContent = 'コピーしました！';
+      setTimeout(() => copyBtn.textContent = 'クリップボードにコピー', 1500);
+    } catch(_) {}
+  });
+
+  const okBtn = document.createElement('button');
+  okBtn.textContent = '閉じる';
+  okBtn.style.cssText = 'padding:6px 14px;background:var(--paper-2);border:1px solid var(--line);border-radius:4px;cursor:pointer;font-size:12px;';
+  okBtn.addEventListener('click', () => modal.remove());
+
+  footer.appendChild(copyBtn);
+  footer.appendChild(okBtn);
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  document.body.appendChild(modal);
 }
 
 // ── 一覧表示モーダル ──
