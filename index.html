@@ -344,9 +344,9 @@
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     flex: 1;
-    overflow: hidden;
+    overflow-y: auto;
     text-align: center;
-    padding: 0;
+    padding: 0 0 60px 0;
     background-color: #1a1a1a;
     position: relative;
   }
@@ -1866,7 +1866,7 @@
   /* Footer */
   footer {
     border-top: 1px solid rgba(0,0,0,0.4);
-    padding: 11px 32px;
+    padding: 6px 32px;
     background: linear-gradient(to top, #1c1c1c 0%, #161616 100%);
     display: flex;
     align-items: center;
@@ -3179,7 +3179,7 @@ function refreshUI() {
     document.body.classList.add('empty-state-on');
     document.getElementById('folder-sidebar').style.display = 'none';
     document.getElementById('main-content')?.style.setProperty('padding', '0');
-    document.getElementById('main-content')?.style.setProperty('overflow', 'hidden');
+    document.getElementById('main-content')?.style.setProperty('overflow-y', 'auto');
     document.getElementById('btn-export').disabled = true;
     document.getElementById('btn-sort').disabled = true;
     outputInfo.textContent = '—';
@@ -3920,6 +3920,8 @@ function updateTrashUI() {
   badge.style.display = trash.length > 0 ? 'flex' : 'none';
   if (trash.length === 0) {
     list.innerHTML = '<div class="trash-empty">ゴミ箱は空です</div>';
+    const navList = document.getElementById('trash-list-nav');
+    if (navList) navList.innerHTML = '<div class="trash-empty">ゴミ箱は空です</div>';
     return;
   }
   list.innerHTML = '';
@@ -7162,8 +7164,8 @@ function annDraw(ctx, a) {
       ctx.save();
       ctx.globalAlpha = opacity;
       if (blur > 0) {
-        // 極小blur+強contrastでにじみ感（ぼやけず滲む）
-        const blurPx = blur * 0.15;
+        // 極小blur+強contrastでにじみ感（ぼやけず滲む）上限2.5px
+        const blurPx = Math.min(blur * 0.15, 2.5);
         const contrast = 1.5 + blur * 0.05;
         ctx.filter = `blur(${blurPx}px) contrast(${contrast})`;
       }
@@ -9314,7 +9316,7 @@ function buildAnnPanel() {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
     const inp = document.createElement('input');
-    inp.type = 'range'; inp.min = 0; inp.max = 30; inp.value = state.stampBlur || 0;
+    inp.type = 'range'; inp.min = 0; inp.max = 17; inp.value = Math.min(state.stampBlur || 0, 17);
     inp.style.flex = '1';
     const val = document.createElement('span');
     val.style.cssText = 'font-family:var(--mono);font-size:11px;color:var(--muted);min-width:32px;text-align:right;';
@@ -9958,10 +9960,11 @@ function showBoardContextMenu(e, idx) {
   });
   items.push('divider');
 
-  // 取り出し
+  // 取り出し（束のときのみ有効）
   items.push({
     label: '取り出し',
     icon: CTX_ICONS.extract,
+    disabled: !isGroup,
     action: () => actExtractToBoard(navIdx !== null && navMemberIdxs ? navMemberIdxs[navIdx] : null),
   });
   items.push('divider');
@@ -11119,11 +11122,17 @@ document.getElementById('btn-trash-nav').addEventListener('click', (e) => {
   trashMenuWrap.classList.toggle('open');
 });
 trashMenuWrap.querySelector('.sort-dropdown').addEventListener('click', e => e.stopPropagation());
-document.getElementById('trash-empty-btn-nav').addEventListener('click', () => {
+document.getElementById('trash-empty-btn-nav').addEventListener('click', async () => {
   if (trash.length === 0) return;
   if (!confirm(`ゴミ箱内の${trash.length}件を完全に削除しますか？`)) return;
   trash.length = 0;
-  updateTrashUI();
+  setTimeout(() => updateTrashUI(), 0);
+  // フォルダstateに即時反映して保存
+  if (currentFolderId) {
+    const snap = buildFolderSnapshot();
+    folderStates[currentFolderId] = snap;
+    await saveFolderStateToDB(currentFolderId, snap);
+  }
   scheduleSave(true);
 });
 
@@ -11132,11 +11141,16 @@ document.addEventListener('click', () => {
   document.getElementById('trash-menu-wrap').classList.remove('open');
 });
 document.getElementById('trash-panel').addEventListener('click', e => e.stopPropagation());
-document.getElementById('trash-empty-btn').addEventListener('click', () => {
+document.getElementById('trash-empty-btn').addEventListener('click', async () => {
   if (trash.length === 0) return;
   if (!confirm(`ゴミ箱内の${trash.length}件を完全に削除しますか？`)) return;
   trash.length = 0;
-  updateTrashUI();
+  setTimeout(() => updateTrashUI(), 0);
+  if (currentFolderId) {
+    const snap = buildFolderSnapshot();
+    folderStates[currentFolderId] = snap;
+    await saveFolderStateToDB(currentFolderId, snap);
+  }
   scheduleSave(true);
 });
 updateTrashUI();
