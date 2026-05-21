@@ -258,6 +258,7 @@
   #folder-tree {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 6px 0;
   }
   .folder-item {
@@ -299,7 +300,7 @@
     border-radius: 2px;
     outline: none;
     width: 100%;
-    max-width: 120px;
+    min-width: 0;
   }
   .folder-item .folder-menu-btn {
     opacity: 0;
@@ -10763,7 +10764,7 @@ function renderFolderTree() {
     children.forEach(folder => {
       const item = document.createElement('div');
       item.className = 'folder-item' + (folder.id === currentFolderId ? ' active' : '');
-      item.style.paddingLeft = (10 + depth * 16) + 'px';
+      item.style.paddingLeft = (10 + Math.min(depth, 4) * 12) + 'px';
       item.dataset.folderId = folder.id;
 
       // トグル
@@ -10848,18 +10849,59 @@ function startRenameFolder(id) {
   const nameSpan = item.querySelector('.folder-name');
   if (!nameSpan) return;
   const folder = folders.find(f => f.id === id);
-  const input = document.createElement('input');
+
+  // itemの位置を取得してoverlay inputを配置
+  const rect = item.getBoundingClientRect();
+  const sidebar = document.getElementById('folder-sidebar');
+  const sidebarRect = sidebar.getBoundingClientRect();
+
+  const input = document.createElement('textarea');
   input.className = 'folder-name-input';
   input.value = folder.name;
-  nameSpan.replaceWith(input);
+  input.rows = 1;
+  input.style.cssText = `
+    position: fixed;
+    left: ${sidebarRect.left + 4}px;
+    top: ${rect.top + 2}px;
+    width: ${sidebarRect.width - 8}px;
+    z-index: 9999;
+    background: #2a2a2a;
+    border: 1px solid rgba(255,255,255,0.4);
+    color: white;
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    outline: none;
+    box-sizing: border-box;
+    word-break: break-all;
+    white-space: pre-wrap;
+    resize: none;
+    overflow: hidden;
+    line-height: 1.4;
+    font-family: inherit;
+  `;
+  // 入力に応じて高さを自動調整
+  const autoResize = () => {
+    input.style.height = 'auto';
+    input.style.height = input.scrollHeight + 'px';
+  };
+  document.body.appendChild(input);
+  autoResize();
+  input.addEventListener('input', autoResize);
   input.focus();
   input.select();
+
   const finish = () => {
+    if (!input.parentNode) return;
     const newName = input.value.trim() || folder.name;
+    input.remove();
     renameFolder(id, newName);
   };
   input.addEventListener('blur', finish);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(); else if (e.key === 'Escape') renderFolderTree(); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(); }
+    else if (e.key === 'Escape') { input.remove(); renderFolderTree(); }
+  });
 }
 
 // ページをコピーして別フォルダに移動
