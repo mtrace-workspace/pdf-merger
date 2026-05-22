@@ -5233,7 +5233,7 @@ function actUngroup() {
         const newFile = {
           ...origFile,
           id: newId,
-          name: `${baseName}_p${p.pageNum}${ext}`,
+          name: `${baseName} p${i + 1}${ext}`,
           pageCount: 1,
           _viewerPdf: origFile._viewerPdf,
         };
