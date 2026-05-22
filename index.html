@@ -324,9 +324,17 @@
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
-    padding: 32px 40px;
+    padding: 8px 10px;
     min-width: 0;
     background: #fdfcf8;
+  }
+  #workspace {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    min-width: 0;
   }
 
   /* Empty state */
@@ -855,9 +863,13 @@
     display: flex;
     align-items: baseline;
     gap: 14px;
-    margin-bottom: 24px;
-    padding-bottom: 14px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #fdfcf8;
   }
   .section-title h2 {
     font-family: 'Inter', 'Helvetica Neue', 'Noto Sans JP', sans-serif;
@@ -2013,31 +2025,29 @@
 <script>
 (function fixUIZoom() {
   function applyZoomFix() {
-    const zoom = window.devicePixelRatio / (window.outerWidth / window.innerWidth || 1);
     const browserZoom = window.outerWidth / window.innerWidth;
-    if (browserZoom && browserZoom !== 1) {
+    if (browserZoom && Math.abs(browserZoom - 1) > 0.02) {
       const fix = (1 / browserZoom).toFixed(4);
+      const w = Math.ceil(window.innerWidth * browserZoom) + 'px';
       const header = document.querySelector('header');
       const sidebar = document.getElementById('folder-sidebar');
       const footer = document.querySelector('footer');
-      const w = Math.ceil(window.innerWidth * browserZoom) + 'px';
       if (header) { header.style.zoom = fix; header.style.width = w; }
-      if (sidebar) { 
-        sidebar.style.zoom = fix; 
+      if (sidebar) {
+        sidebar.style.zoom = fix;
         sidebar.style.height = Math.ceil(window.innerHeight * browserZoom) + 'px';
-        sidebar.style.width = '';
-        sidebar.style.marginLeft = '';
       }
       if (footer) { footer.style.zoom = fix; footer.style.width = w; }
       const trash = document.getElementById('trash-widget');
       if (trash) trash.style.zoom = fix;
+      const sectionTitle = document.querySelector('.section-title');
+      if (sectionTitle) { sectionTitle.style.zoom = fix; sectionTitle.style.width = w; }
       requestAnimationFrame(() => {
         const mainEl = document.querySelector('main');
-        if (mainEl && header && footer) {
-          mainEl.style.width = w;
-          mainEl.style.left = '0';
+        if (mainEl && header) {
+          // mainEl.style.width は設定しない（ボード幅が狭くなるため）
           mainEl.style.paddingTop = header.getBoundingClientRect().height + 'px';
-          mainEl.style.paddingBottom = footer.getBoundingClientRect().height + 'px';
+          if (footer) mainEl.style.paddingBottom = footer.getBoundingClientRect().height + 'px';
         }
       });
     } else {
@@ -2049,6 +2059,8 @@
       if (footer) { footer.style.zoom = ''; footer.style.width = ''; }
       const trash = document.getElementById('trash-widget');
       if (trash) trash.style.zoom = '';
+      const sectionTitle = document.querySelector('.section-title');
+      if (sectionTitle) { sectionTitle.style.zoom = ''; sectionTitle.style.width = ''; }
       const mainEl = document.querySelector('main');
       if (mainEl) { mainEl.style.paddingTop = ''; mainEl.style.paddingBottom = ''; }
     }
@@ -3234,10 +3246,10 @@ function refreshUI() {
     return;
   }
   emptyState.style.display = 'none';
-  workspace.style.display = 'block';
+  workspace.style.display = 'flex';
   document.body.classList.remove('empty-state-on');
   document.getElementById('folder-sidebar').style.display = 'flex';
-  document.getElementById('main-content')?.style.setProperty('padding', '32px 40px');
+  document.getElementById('main-content')?.style.setProperty('padding', '8px 10px');
   document.getElementById('main-content')?.style.setProperty('overflow-y', 'auto');
   document.getElementById('btn-sort').disabled = state.files.length === 0;
 
