@@ -1482,7 +1482,6 @@
     background-color: rgba(255,255,255,0.5);
     display: flex;
     align-items: flex-start;
-    justify-content: center;
     padding: 32px;
     position: relative;
     cursor: grab;
@@ -4606,7 +4605,7 @@ function renderExpansionModal() {
   main.className = 'viewer-main';
   const zoomWrap = document.createElement('div');
   zoomWrap.id = 'viewer-zoom-wrap';
-  zoomWrap.style.cssText = 'display:flex;justify-content:center;align-items:flex-start;min-width:0;';
+  zoomWrap.style.cssText = 'display:flex;justify-content:center;align-items:flex-start;min-width:0;margin:0 auto;';
   const pageWrap = document.createElement('div');
   pageWrap.className = 'viewer-page-wrap';
   pageWrap.id = 'viewer-page-wrap';
@@ -4946,12 +4945,15 @@ function applyViewerZoom(z, silent = false) {
       pageWrap.style.marginBottom = '';
     }
     // scrollLeftを中央に設定して左右どちらにもスクロール可能に
+    // rAF 2重で確実にレイアウト更新後に実行
     const viewerMain = document.querySelector('.viewer-main');
     if (viewerMain) {
-      setTimeout(() => {
-        const maxScroll = viewerMain.scrollWidth - viewerMain.clientWidth;
-        if (maxScroll > 0) viewerMain.scrollLeft = maxScroll / 2;
-      }, 50);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const maxScroll = viewerMain.scrollWidth - viewerMain.clientWidth;
+          viewerMain.scrollLeft = maxScroll > 0 ? maxScroll / 2 : 0;
+        });
+      });
     }
   }
   const pct = document.querySelector('.viewer-zoom-pct');
@@ -5149,61 +5151,6 @@ document.addEventListener('keydown', e => {
 });
 
 
-// ── Export ────────────────────────────────────────────
-// （ボタンのリスナーは openExportDialog として後で登録される）
-
-async function exportMerged() {
-  const btn = document.getElementById('btn-export');
-  const origLabel = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '⏳ 結合中...';
-  statusText.textContent = '結合中...';
-
-  try {
-    const { PDFDocument } = PDFLib;
-    const outDoc = await PDFDocument.create();
-
-    // 各ファイルのpdf-libドキュメントをキャッシュ
-    const docCache = new Map();
-    async function getSrcDoc(fileId) {
-      if (docCache.has(fileId)) return docCache.get(fileId);
-      const file = state.files.find(f => f.id === fileId);
-      if (!file) return null;
-      const doc = await PDFDocument.load(file.bytes.slice(0));
-      docCache.set(fileId, doc);
-      return doc;
-    }
-
-    for (const entry of state.pageOrder) {
-        if (!entry.included) continue;
-        const srcDoc = await getSrcDoc(entry.fileId);
-        if (!srcDoc) continue;
-        const [p] = await outDoc.copyPages(srcDoc, [entry.pageNum - 1]);
-        outDoc.addPage(p);
-      }
-
-    if (outDoc.getPageCount() === 0) {
-      throw new Error('出力するページがありません');
-    }
-
-    const pdfBytes = await outDoc.save();
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `merged_${new Date().toISOString().slice(0,10).replace(/-/g,'')}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-    statusText.textContent = `結合完了（${outDoc.getPageCount()}ページ）`;
-  } catch (err) {
-    console.error(err);
-    alert('結合エラー: ' + err.message);
-    statusText.textContent = 'エラー';
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = origLabel;
-  }
-}
 
 // ════════════════════════════════════════════════════
 // ページ操作機能（取り出し/複製/回転/分割/削除）
@@ -5727,11 +5674,6 @@ async function actSplit() {
     statusText.textContent = 'エラー';
   }
 }
-
-// 結合エクスポートも回転を反映するよう更新
-const originalExport = exportMerged;
-window.exportMerged = async function() {}; // placeholder
-// 既存のexportMerged内でcopyPages後に回転反映が必要 → 関数を上書き
 
 // 既存のexportMergedを回転対応版に置き換える
 async function exportMerged() {
@@ -11006,6 +10948,16 @@ async function loadThumbFromDB(key) {
     });
   } catch(e) { return null; }
 }
+
+// サムネをIndexedDBから削除
+async function deleteThumbFromDB(key) {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(THUMB_STORE, 'readwrite');
+    tx.objectStore(THUMB_STORE).delete(key);
+  } catch(e) {}
+}
+
 
 async function saveStateToDB(snapshot) {
   const db = await openDB();
