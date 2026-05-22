@@ -5224,13 +5224,15 @@ function actUngroup() {
     // 元ファイルを取得
     const origFileId = members[0].fileId;
     const origFile = state.files.find(f => f.id === origFileId);
+    // ユーザーが変更したカスタム名を優先、なければ元ファイル名を使用
+    const customName = state.groupNames[gid];
     members.forEach((p, i) => {
       // ページごとに独立したfileエントリを作成
       if (origFile && members.length > 1) {
         const newId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '_' + i;
-        const baseName = origFile.name.replace(/(\.[^.]+)$/, '');
-        const cleanBaseName = baseName.replace(/ p\d+$/, '');
         const ext = origFile.name.match(/(\.[^.]+)$/)?.[1] || '.pdf';
+        const rawBase = customName || origFile.name.replace(/(\.[^.]+)$/, '');
+        const cleanBaseName = rawBase.replace(/ p\d+$/, '');
         const newFile = {
           ...origFile,
           id: newId,
