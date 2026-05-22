@@ -5229,11 +5229,12 @@ function actUngroup() {
       if (origFile && members.length > 1) {
         const newId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '_' + i;
         const baseName = origFile.name.replace(/(\.[^.]+)$/, '');
+        const cleanBaseName = baseName.replace(/ p\d+$/, '');
         const ext = origFile.name.match(/(\.[^.]+)$/)?.[1] || '.pdf';
         const newFile = {
           ...origFile,
           id: newId,
-          name: `${baseName} p${i + 1}${ext}`,
+          name: `${cleanBaseName} p${i + 1}${ext}`,
           pageCount: 1,
           _viewerPdf: origFile._viewerPdf,
         };
