@@ -6363,6 +6363,15 @@ function annOnMouseMove(e, overlay, entry) {
     if (annDragOffset.mode === 'resize') {
       const orig = annDragOffset.orig;
       const handle = annDragOffset.handle;
+      // 回転ハンドルドラッグ
+      if (handle === 'rotate') {
+        const cx = orig.x + orig.w / 2;
+        const cy = orig.y + orig.h / 2;
+        const angle = Math.atan2(p.y - cy, p.x - cx) * 180 / Math.PI + 90;
+        ann.rotation = Math.round(angle);
+        drawAllAnnotations(entry);
+        return;
+      }
       // 矩形系のリサイズ
       if (ann.type === 'rect' || ann.type === 'highlight' || ann.type === 'stamp' || ann.type === 'image' || ann.type === 'circle' || ann.type === 'triangle') {
         // orig の左上(x,y)・幅・高さ。orig.w/h は負の場合もあるが、まず正規化
@@ -7039,6 +7048,8 @@ function annDraw(ctx, a) {
   const noStroke = !a.color || a.color === 'transparent';
 
   if (a.type === 'rect') {
+    const rot = a.rotation || 0;
+    if (rot) { ctx.save(); const cx=a.x+a.w/2,cy=a.y+a.h/2; ctx.translate(cx,cy); ctx.rotate(rot*Math.PI/180); ctx.translate(-cx,-cy); }
     if (a.fill === 'fill' || a.fill === 'semi') {
       const opacity = a.fillOpacity !== undefined ? a.fillOpacity : (a.fill === 'semi' ? 0.3 : 1.0);
       ctx.save();
@@ -7051,9 +7062,12 @@ function annDraw(ctx, a) {
       ctx.strokeStyle = a.color;
       ctx.strokeRect(a.x, a.y, a.w, a.h);
     }
+    if (rot) ctx.restore();
   } else if (a.type === 'circle') {
     const cx = a.x + a.w / 2, cy = a.y + a.h / 2;
     const rx = Math.abs(a.w) / 2, ry = Math.abs(a.h) / 2;
+    const rot = a.rotation || 0;
+    if (rot) { ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot*Math.PI/180); ctx.translate(-cx,-cy); }
     ctx.beginPath();
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     if (a.fill === 'fill' || a.fill === 'semi') {
@@ -7065,7 +7079,10 @@ function annDraw(ctx, a) {
       ctx.restore();
     }
     if (!noStroke) { ctx.stroke(); }
+    if (rot) ctx.restore();
   } else if (a.type === 'triangle') {
+    const rot = a.rotation || 0;
+    if (rot) { ctx.save(); const cx=a.x+a.w/2,cy=a.y+a.h/2; ctx.translate(cx,cy); ctx.rotate(rot*Math.PI/180); ctx.translate(-cx,-cy); }
     ctx.beginPath();
     ctx.moveTo(a.x + a.w / 2, a.y);
     ctx.lineTo(a.x + a.w, a.y + a.h);
@@ -7080,12 +7097,16 @@ function annDraw(ctx, a) {
       ctx.restore();
     }
     if (!noStroke) { ctx.stroke(); }
+    if (rot) ctx.restore();
   } else if (a.type === 'highlight') {
+    const rot = a.rotation || 0;
+    if (rot) { ctx.save(); const cx=a.x+a.w/2,cy=a.y+a.h/2; ctx.translate(cx,cy); ctx.rotate(rot*Math.PI/180); ctx.translate(-cx,-cy); }
     ctx.save();
     ctx.fillStyle = a.color;
     ctx.globalAlpha = 0.35;
     ctx.fillRect(a.x, a.y, a.w, a.h);
     ctx.restore();
+    if (rot) ctx.restore();
   } else if (a.type === 'line') {
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
@@ -7153,6 +7174,8 @@ function annDraw(ctx, a) {
     if (a.dataUrl) {
       const img = getStampImage(a.dataUrl);
       ctx.save();
+      const rot = a.rotation || 0;
+      if (rot) { const cx=a.x+a.w/2,cy=a.y+a.h/2; ctx.translate(cx,cy); ctx.rotate(rot*Math.PI/180); ctx.translate(-cx,-cy); }
       if (img.complete && img.naturalWidth > 0) {
         // 縮小時は高品質スムージング、等倍・拡大時はピクセルシャープ
         const scaleX = a.w / img.naturalWidth;
@@ -7361,6 +7384,33 @@ function drawResizeHandles(ctx, x1, y1, x2, y2) {
     ctx.strokeRect(h.x - sz, h.y - sz, sz * 2, sz * 2);
   });
   ctx.restore();
+
+  // 回転ハンドル（上中央から上に離れた位置に円形矢印）
+  const ROTATE_GAP = 20 / canvasToScreen;
+  const rotHx = cx, rotHy = y1 - ROTATE_GAP;
+  const rotR  = 5  / canvasToScreen;
+  ctx.save();
+  ctx.strokeStyle = '#2B59C3';
+  ctx.lineWidth   = 1.5 / canvasToScreen;
+  ctx.setLineDash([]);
+  // 接続ライン
+  ctx.beginPath(); ctx.moveTo(cx, y1); ctx.lineTo(rotHx, rotHy + rotR); ctx.stroke();
+  // 円（白抜き）
+  ctx.fillStyle = 'white';
+  ctx.beginPath(); ctx.arc(rotHx, rotHy, rotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // 矢印弧
+  const arR = rotR * 0.65;
+  ctx.beginPath(); ctx.arc(rotHx, rotHy, arR, -Math.PI * 0.85, Math.PI * 0.4); ctx.stroke();
+  // 矢印頭
+  const ea = Math.PI * 0.4;
+  const ex = rotHx + arR * Math.cos(ea), ey = rotHy + arR * Math.sin(ea);
+  const hs = 2.5 / canvasToScreen;
+  ctx.beginPath();
+  ctx.moveTo(ex, ey);
+  ctx.lineTo(ex - hs * Math.cos(ea - Math.PI / 3), ey - hs * Math.sin(ea - Math.PI / 3));
+  ctx.lineTo(ex - hs * Math.cos(ea + Math.PI / 3), ey - hs * Math.sin(ea + Math.PI / 3));
+  ctx.closePath(); ctx.fillStyle = '#2B59C3'; ctx.fill();
+  ctx.restore();
 }
 
 // 端点ハンドル（線・多角形の頂点）
@@ -7399,6 +7449,10 @@ function detectHandle(a, p) {
     for (const [name, hx, hy] of map) {
       if (Math.abs(p.x - hx) <= TOL && Math.abs(p.y - hy) <= TOL) return name;
     }
+    // 回転ハンドル判定（上中央から ROTATE_GAP 上の円）
+    const ROTATE_GAP = 20 / canvasToScreen;
+    const rotTOL = Math.max(8, 12 / canvasToScreen);
+    if (Math.hypot(p.x - (x1+x2)/2, p.y - (y1 - ROTATE_GAP)) <= rotTOL) return 'rotate';
   } else if (a.type === 'line' || a.type === 'arrow') {
     if (Math.hypot(p.x - a.x, p.y - a.y) <= TOL) return 'p0';
     if (Math.hypot(p.x - a.x2, p.y - a.y2) <= TOL) return 'p1';
