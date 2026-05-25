@@ -7311,10 +7311,17 @@ function annDrawSelection(ctx, a) {
   if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'image' || a.type === 'circle' || a.type === 'triangle') {
     x1 = Math.min(a.x, a.x+a.w); y1 = Math.min(a.y, a.y+a.h);
     x2 = Math.max(a.x, a.x+a.w); y2 = Math.max(a.y, a.y+a.h);
+    const rot = a.rotation || 0;
+    if (rot) {
+      const cx = (x1+x2)/2, cy = (y1+y2)/2;
+      ctx.translate(cx, cy);
+      ctx.rotate(rot * Math.PI / 180);
+      ctx.translate(-cx, -cy);
+    }
     ctx.strokeRect(x1, y1, x2-x1, y2-y1);
     ctx.restore();
     // 8方向ハンドル
-    drawResizeHandles(ctx, x1, y1, x2, y2);
+    drawResizeHandles(ctx, x1, y1, x2, y2, rot);
     return;
   } else if (a.type === 'line' || a.type === 'arrow') {
     // 線は端点ハンドルのみ
@@ -7362,7 +7369,7 @@ function getCanvasToScreen() {
   return rectW > 0 ? rectW / overlay.width : 1;
 }
 
-function drawResizeHandles(ctx, x1, y1, x2, y2) {
+function drawResizeHandles(ctx, x1, y1, x2, y2, rot) {
   const canvasToScreen = getCanvasToScreen();
   // スクリーン上で40px未満の辺があればハンドル非表示
   if ((x2 - x1) * canvasToScreen < 40 || (y2 - y1) * canvasToScreen < 40) return;
@@ -7376,6 +7383,11 @@ function drawResizeHandles(ctx, x1, y1, x2, y2) {
   ];
   const sz = 4 / canvasToScreen;
   ctx.save();
+  if (rot) {
+    ctx.translate(cx, cy);
+    ctx.rotate(rot * Math.PI / 180);
+    ctx.translate(-cx, -cy);
+  }
   ctx.fillStyle = 'white';
   ctx.strokeStyle = '#2B59C3';
   ctx.lineWidth = 1.5 / canvasToScreen;
@@ -7390,6 +7402,11 @@ function drawResizeHandles(ctx, x1, y1, x2, y2) {
   const rotHx = cx, rotHy = y1 - ROTATE_GAP;
   const rotR  = 5  / canvasToScreen;
   ctx.save();
+  if (rot) {
+    ctx.translate(cx, cy);
+    ctx.rotate(rot * Math.PI / 180);
+    ctx.translate(-cx, -cy);
+  }
   ctx.strokeStyle = '#2B59C3';
   ctx.lineWidth   = 1.5 / canvasToScreen;
   ctx.setLineDash([]);
@@ -7441,18 +7458,29 @@ function detectHandle(a, p) {
     const x2 = Math.max(a.x, a.x+a.w);
     const y2 = Math.max(a.y, a.y+a.h);
     const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+    // 回転がある場合はマウス位置を逆回転してハンドル判定
+    let tp = p;
+    const rot = a.rotation || 0;
+    if (rot) {
+      const angle = -rot * Math.PI / 180;
+      const dx = p.x - cx, dy = p.y - cy;
+      tp = {
+        x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
+        y: cy + dx * Math.sin(angle) + dy * Math.cos(angle)
+      };
+    }
     const map = [
       ['nw', x1, y1], ['n', cx, y1], ['ne', x2, y1],
       ['w',  x1, cy],                ['e',  x2, cy],
       ['sw', x1, y2], ['s', cx, y2], ['se', x2, y2],
     ];
     for (const [name, hx, hy] of map) {
-      if (Math.abs(p.x - hx) <= TOL && Math.abs(p.y - hy) <= TOL) return name;
+      if (Math.abs(tp.x - hx) <= TOL && Math.abs(tp.y - hy) <= TOL) return name;
     }
     // 回転ハンドル判定（上中央から ROTATE_GAP 上の円）
     const ROTATE_GAP = 20 / canvasToScreen;
     const rotTOL = Math.max(8, 12 / canvasToScreen);
-    if (Math.hypot(p.x - (x1+x2)/2, p.y - (y1 - ROTATE_GAP)) <= rotTOL) return 'rotate';
+    if (Math.hypot(tp.x - (x1+x2)/2, tp.y - (y1 - ROTATE_GAP)) <= rotTOL) return 'rotate';
   } else if (a.type === 'line' || a.type === 'arrow') {
     if (Math.hypot(p.x - a.x, p.y - a.y) <= TOL) return 'p0';
     if (Math.hypot(p.x - a.x2, p.y - a.y2) <= TOL) return 'p1';
