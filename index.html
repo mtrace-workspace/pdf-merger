@@ -4879,6 +4879,8 @@ async function renderViewerMainPage(file, entry, canvas) {
     const logicalScale = Math.min(3.0, targetH / baseVp.height);
     state.viewerScale = logicalScale;
     entry._viewerScale = logicalScale;
+    entry._viewerW = baseVp.width  * logicalScale;   // 回転なしのオーバーレイ幅（注釈座標の基準）
+    entry._viewerH = baseVp.height * logicalScale;   // 回転なしのオーバーレイ高さ
     const rotation = entry.rotation || 0;
     const dpr = window.devicePixelRatio || 1;
     const renderBoost = 2.0;
@@ -6156,7 +6158,7 @@ function setupAnnOverlay(overlay, entry) {
 // 注釈オーバーレイの右クリックメニュー
 function annOnContextMenu(e, overlay, entry) {
   // ヒット判定→注釈があれば選択して、メニュー表示
-  const p = getAnnMousePos(e, overlay);
+  const p = getAnnMousePos(e, overlay, entry);
   const anns = getEntryAnnotations(entry);
   let hit = null;
   for (let i = anns.length - 1; i >= 0; i--) {
@@ -6194,12 +6196,35 @@ function annOnContextMenu(e, overlay, entry) {
   showCtxMenu(e.clientX, e.clientY, items);
 }
 
-function getAnnMousePos(e, overlay) {
+// ページ回転に合わせた Canvas 変換を適用（drawAllAnnotations の冒頭で呼ぶ）
+function applyAnnRotTransform(ctx, rotation, W0, H0) {
+  switch (rotation) {
+    case 90:  ctx.translate(0, W0);    ctx.rotate(-Math.PI / 2); break;
+    case 180: ctx.translate(W0, H0);   ctx.rotate(Math.PI);      break;
+    case 270: ctx.translate(H0, 0);    ctx.rotate(Math.PI / 2);  break;
+  }
+}
+// 回転オーバーレイ上のマウス座標を注釈座標（回転なし）に逆変換
+function inverseAnnRotPoint(p, rotation, W0, H0) {
+  switch (rotation) {
+    case 90:  return { x: W0 - p.y, y: p.x };
+    case 180: return { x: W0 - p.x, y: H0 - p.y };
+    case 270: return { x: p.y,      y: H0 - p.x };
+    default:  return p;
+  }
+}
+
+function getAnnMousePos(e, overlay, entry) {
   const rect = overlay.getBoundingClientRect();
-  return {
-    x: (e.clientX - rect.left) * (overlay.width / rect.width),
-    y: (e.clientY - rect.top) * (overlay.height / rect.height)
+  const raw = {
+    x: (e.clientX - rect.left) * (overlay.width  / rect.width),
+    y: (e.clientY - rect.top)  * (overlay.height / rect.height)
   };
+  const rotation = entry ? (entry.rotation || 0) : 0;
+  if (!rotation) return raw;
+  const W0 = entry._viewerW || overlay.width;
+  const H0 = entry._viewerH || overlay.height;
+  return inverseAnnRotPoint(raw, rotation, W0, H0);
 }
 
 function annOnMouseDown(e, overlay, entry) {
@@ -6210,7 +6235,7 @@ function annOnMouseDown(e, overlay, entry) {
   const existingInput = document.querySelector('.ann-text-input');
   if (existingInput) { existingInput.blur(); return; }
 
-  const p = getAnnMousePos(e, overlay);
+  const p = getAnnMousePos(e, overlay, entry);
   const anns = getEntryAnnotations(entry);
 
   // スペースキー押しながら→常にパン
@@ -6349,12 +6374,12 @@ function annOnMouseDown(e, overlay, entry) {
 function annOnMouseMove(e, overlay, entry) {
   // 多角形描画中はマウス位置を更新しプレビュー再描画
   if (state.tool === 'polygon' && polygonPoints && polygonPoints.length > 0) {
-    polygonMousePos = getAnnMousePos(e, overlay);
+    polygonMousePos = getAnnMousePos(e, overlay, entry);
     drawAllAnnotations(entry);
     return;
   }
   if (!annDrawing) return;
-  const p = getAnnMousePos(e, overlay);
+  const p = getAnnMousePos(e, overlay, entry);
   const anns = getEntryAnnotations(entry);
 
   if (state.tool === 'select' && state.annSelectedId && annDragOffset) {
@@ -6557,7 +6582,7 @@ function annOnDblClick(e, overlay, entry) {
     finalizePolygon(entry);
     return;
   }
-  const p = getAnnMousePos(e, overlay);
+  const p = getAnnMousePos(e, overlay, entry);
   const anns = getEntryAnnotations(entry);
   for (let i = anns.length - 1; i >= 0; i--) {
     if (anns[i].type === 'text' && annHitTest(anns[i], p)) {
@@ -6879,6 +6904,16 @@ function drawAllAnnotations(entry) {
   if (!overlay) return;
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  // ページ回転に合わせて注釈座標系を変換
+  const pageRot = entry ? (entry.rotation || 0) : 0;
+  if (pageRot) {
+    const W0 = (entry && entry._viewerW) || overlay.width;
+    const H0 = (entry && entry._viewerH) || overlay.height;
+    ctx.save();
+    applyAnnRotTransform(ctx, pageRot, W0, H0);
+  }
+
   const anns = getEntryAnnotations(entry);
   anns.forEach(a => { if (!a._editing) annDraw(ctx, a); });
   if (annCurrentShape) annDraw(ctx, annCurrentShape);
@@ -6906,6 +6941,9 @@ function drawAllAnnotations(entry) {
     const sel = anns.find(a => a.id === state.annSelectedId);
     if (sel && !sel._editing) annDrawSelection(ctx, sel);
   }
+
+  // 回転変換を解除
+  if (pageRot) ctx.restore();
 
   // サムネを注釈付きで更新
   refreshThumbWithAnnotations(entry);
