@@ -5018,10 +5018,8 @@ function rotateAnnotationsForEntry(entry, deg, W, H) {
       a.y = Math.min(p1.y, p2.y);
       a.w = Math.abs(p2.x - p1.x);
       a.h = Math.abs(p2.y - p1.y);
-      // 印鑑は向きも回転
-      if (a.type === 'stamp') {
-        a.rotation = (((a.rotation || 0) + deg) % 360 + 360) % 360;
-      }
+      // 向きもページ回転に追従（全タイプ共通）
+      a.rotation = (((a.rotation || 0) + deg) % 360 + 360) % 360;
     } else if (a.type === 'line' || a.type === 'arrow') {
       const p1 = rotPoint(a.x, a.y);
       const p2 = rotPoint(a.x2, a.y2);
@@ -6216,15 +6214,10 @@ function inverseAnnRotPoint(p, rotation, W0, H0) {
 
 function getAnnMousePos(e, overlay, entry) {
   const rect = overlay.getBoundingClientRect();
-  const raw = {
+  return {
     x: (e.clientX - rect.left) * (overlay.width  / rect.width),
     y: (e.clientY - rect.top)  * (overlay.height / rect.height)
   };
-  const rotation = entry ? (entry.rotation || 0) : 0;
-  if (!rotation) return raw;
-  const W0 = entry._viewerW || overlay.width;
-  const H0 = entry._viewerH || overlay.height;
-  return inverseAnnRotPoint(raw, rotation, W0, H0);
 }
 
 function annOnMouseDown(e, overlay, entry) {
@@ -6905,15 +6898,6 @@ function drawAllAnnotations(entry) {
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-  // ページ回転に合わせて注釈座標系を変換
-  const pageRot = entry ? (entry.rotation || 0) : 0;
-  if (pageRot) {
-    const W0 = (entry && entry._viewerW) || overlay.width;
-    const H0 = (entry && entry._viewerH) || overlay.height;
-    ctx.save();
-    applyAnnRotTransform(ctx, pageRot, W0, H0);
-  }
-
   const anns = getEntryAnnotations(entry);
   anns.forEach(a => { if (!a._editing) annDraw(ctx, a); });
   if (annCurrentShape) annDraw(ctx, annCurrentShape);
@@ -6941,9 +6925,6 @@ function drawAllAnnotations(entry) {
     const sel = anns.find(a => a.id === state.annSelectedId);
     if (sel && !sel._editing) annDrawSelection(ctx, sel);
   }
-
-  // 回転変換を解除
-  if (pageRot) ctx.restore();
 
   // サムネを注釈付きで更新
   refreshThumbWithAnnotations(entry);
