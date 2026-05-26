@@ -5008,8 +5008,18 @@ function rotateAnnotationsForEntry(entry, deg, W, H) {
   };
 
   for (const a of anns) {
-    if (a.type === 'rect' || a.type === 'highlight' || a.type === 'stamp' || a.type === 'image' || a.type === 'circle' || a.type === 'triangle' || a.type === 'circle' || a.type === 'triangle') {
-      // 矩形：左上と右下を計算してから新しい矩形に
+    if (a.type === 'stamp' || a.type === 'image') {
+      // 印鑑・画像：中心点を回転移動させ w/h は維持（縦横比を保つ）
+      // バウンディングボックスをスワップ＋rotation加算すると二重変換になるため、
+      // 中心点変換のみ＋rotation加算で正しく追従させる
+      const cx = a.x + a.w / 2;
+      const cy = a.y + a.h / 2;
+      const nc = rotPoint(cx, cy);
+      a.x = nc.x - a.w / 2;
+      a.y = nc.y - a.h / 2;
+      a.rotation = (((a.rotation || 0) + deg) % 360 + 360) % 360;
+    } else if (a.type === 'rect' || a.type === 'highlight' || a.type === 'circle' || a.type === 'triangle') {
+      // 矩形系：左上と右下を変換して新しいバウンディングボックスを算出（w/h がスワップ）
       const x1 = a.x, y1 = a.y;
       const x2 = a.x + a.w, y2 = a.y + a.h;
       const p1 = rotPoint(x1, y1);
@@ -5018,10 +5028,6 @@ function rotateAnnotationsForEntry(entry, deg, W, H) {
       a.y = Math.min(p1.y, p2.y);
       a.w = Math.abs(p2.x - p1.x);
       a.h = Math.abs(p2.y - p1.y);
-      // 印鑑・画像はコンテンツの向きも回転（矩形系はbounding box変換で完結）
-      if (a.type === 'stamp' || a.type === 'image') {
-        a.rotation = (((a.rotation || 0) + deg) % 360 + 360) % 360;
-      }
     } else if (a.type === 'line' || a.type === 'arrow') {
       const p1 = rotPoint(a.x, a.y);
       const p2 = rotPoint(a.x2, a.y2);
