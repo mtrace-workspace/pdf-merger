@@ -5544,9 +5544,17 @@ function rotateSelected(deg) {
       });
     }
   });
+  const norm = ((deg % 360) + 360) % 360;
   targetIdxs.forEach(idx => {
     const entry = state.pageOrder[idx];
     if (!entry) return;
+    // 注釈座標もページ回転に追従させる（ビューアを一度でも開いていれば _viewerW/_viewerH が利用可能）
+    if (entry._viewerW && entry._viewerH) {
+      const curRot = entry.rotation || 0;
+      const W = (curRot === 90 || curRot === 270) ? entry._viewerH : entry._viewerW;
+      const H = (curRot === 90 || curRot === 270) ? entry._viewerW : entry._viewerH;
+      rotateAnnotationsForEntry(entry, norm, W, H);
+    }
     entry.rotation = (((entry.rotation || 0) + deg) % 360 + 360) % 360;
   });
   refreshUI();
