@@ -5018,8 +5018,10 @@ function rotateAnnotationsForEntry(entry, deg, W, H) {
       a.y = Math.min(p1.y, p2.y);
       a.w = Math.abs(p2.x - p1.x);
       a.h = Math.abs(p2.y - p1.y);
-      // 向きもページ回転に追従（全タイプ共通）
-      a.rotation = (((a.rotation || 0) + deg) % 360 + 360) % 360;
+      // 印鑑・画像はコンテンツの向きも回転（矩形系はbounding box変換で完結）
+      if (a.type === 'stamp' || a.type === 'image') {
+        a.rotation = (((a.rotation || 0) + deg) % 360 + 360) % 360;
+      }
     } else if (a.type === 'line' || a.type === 'arrow') {
       const p1 = rotPoint(a.x, a.y);
       const p2 = rotPoint(a.x2, a.y2);
