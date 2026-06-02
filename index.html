@@ -6761,19 +6761,26 @@ function annCreateTextInput(p, overlay, entry, editingAnn = null) {
     if (save) switchToSelectTool();
   };
 
-  input.placeholder = 'Ctrl+Enter で確定 / Esc でキャンセル';
+  input.placeholder = 'Enter で確定 / Alt+Enter で改行 / Esc でキャンセル';
   input.addEventListener('blur', () => finish(true));
   input.addEventListener('keydown', e => {
     e.stopPropagation();
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      // Ctrl+Enter（Mac は Cmd+Enter）で確定
+    if (e.key === 'Enter' && e.altKey) {
+      // Alt+Enter で改行
+      e.preventDefault();
+      const pos = input.selectionStart;
+      input.value = input.value.slice(0, pos) + '\n' + input.value.slice(pos);
+      input.selectionStart = input.selectionEnd = pos + 1;
+      input.style.height = 'auto';
+      input.style.height = input.scrollHeight + 'px';
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      // Enter で確定
       e.preventDefault();
       finish(true);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       finish(false);
     }
-    // Enter 単独は textarea デフォルト（改行挿入）に委ねる
   });
   input.addEventListener('input', () => {
     input.style.height = 'auto';
