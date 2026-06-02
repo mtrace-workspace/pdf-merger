@@ -10162,6 +10162,19 @@ function showViewerContextMenu(e, memberIdx) {
 
   const items = [
     {
+      label: '前のページ',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 18l-6-6 6-6"/></svg>',
+      disabled: state.viewerMemberIdx === 0,
+      action: () => { state.viewerMemberIdx--; renderExpansionModal(); },
+    },
+    {
+      label: '次のページ',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18l6-6-6-6"/></svg>',
+      disabled: state.viewerMemberIdx === members.length - 1,
+      action: () => { state.viewerMemberIdx++; renderExpansionModal(); },
+    },
+    'divider',
+    {
       label: '一覧で表示',
       icon: CTX_ICONS.grid || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
       action: () => showAllPagesGrid(),
