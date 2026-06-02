@@ -4779,6 +4779,12 @@ function renderExpansionModal() {
   modal.appendChild(content);
   document.body.appendChild(modal);
 
+  // サムネパネルを現在ページにスクロール（クリックでリビルドしてもスクロール位置を保つ）
+  requestAnimationFrame(() => {
+    const curThumb = modal.querySelector('.viewer-thumb.current');
+    if (curThumb) curThumb.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+  });
+
   // モーダルDOMに追加後、メモリキャッシュがあれば即表示・なければキューへ
   requestAnimationFrame(() => {
     modal.querySelectorAll('.viewer-thumb-canvas-wrap canvas').forEach(cv => {
