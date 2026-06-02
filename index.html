@@ -3480,6 +3480,7 @@ function renderPageMode() {
       prevBtn.addEventListener('click', e => {
         e.stopPropagation();
         card._navIdx = (card._navIdx - 1 + item.memberIdxs.length) % item.memberIdxs.length;
+        boardNavMap.set(item.groupId, card._navIdx);
         updateNavThumb();
       });
       nextBtn.addEventListener('mousedown', e => e.stopPropagation());
@@ -3487,6 +3488,7 @@ function renderPageMode() {
       nextBtn.addEventListener('click', e => {
         e.stopPropagation();
         card._navIdx = (card._navIdx + 1) % item.memberIdxs.length;
+        boardNavMap.set(item.groupId, card._navIdx);
         updateNavThumb();
       });
     }
@@ -4072,6 +4074,8 @@ function formatSize(bytes) {
 // ── Drag & drop reordering ───────────────────────────
 // ── Pointer-based drag (free positioning) ────────────
 let dragSession = null;
+// 束カードのめくり位置を保持 groupId → navIdx（ドロップ差し込み位置に使用）
+const boardNavMap = new Map();
 let lastClickInfo = null; // ダブルクリック検出用
 
 function setupCardPointerHandlers(card, idx) {
@@ -4306,14 +4310,19 @@ function handleDropAtPosition(session, evt) {
     if (ent) ent.groupId = gid;
   });
 
-  // ドラッグ側が先頭になるようpageOrderを並び替え
+  // ドラッグ側をpageOrderから抜き出してrest配列を作る
   const dragged = state.pageOrder.filter((p, i) => session.idxs.includes(i));
   const rest = state.pageOrder.filter((p, i) => !session.idxs.includes(i));
-  // restの中でgidグループの先頭位置を探す
-  const firstRestGroupIdx = rest.findIndex(p => p.groupId === gid);
-  if (firstRestGroupIdx >= 0) {
-    // ドラッグ側をそのグループの先頭に挿入
-    rest.splice(firstRestGroupIdx, 0, ...dragged);
+
+  // rest内でgidグループのページ位置を列挙
+  const groupPositionsInRest = [];
+  rest.forEach((p, i) => { if (p.groupId === gid) groupPositionsInRest.push(i); });
+
+  if (groupPositionsInRest.length > 0) {
+    // めくり位置（boardNavMap）があればその位置、なければ先頭に挿入
+    const navIdx = boardNavMap.get(gid) || 0;
+    const insertAt = groupPositionsInRest[navIdx] ?? groupPositionsInRest[0];
+    rest.splice(insertAt, 0, ...dragged);
     state.pageOrder = rest;
   }
 
