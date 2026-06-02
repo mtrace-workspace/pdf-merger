@@ -4910,6 +4910,25 @@ async function renderViewerMainPage(file, entry, canvas) {
     canvas.height = renderViewport.height;
     canvas.style.width = displayViewport.width + 'px';
     canvas.style.height = displayViewport.height + 'px';
+
+    // レンダリング前にズーム倍率を確定して transform だけ先適用
+    // → 描画完了と同時に正しいサイズで表示され、フラッシュを防ぐ
+    const targetZ = (() => {
+      if (state.viewerZoom !== 0) return state.viewerZoom;
+      const viewerMain = document.querySelector('.viewer-main');
+      const contentH = displayViewport.height;
+      if (viewerMain && contentH > 0) {
+        const availH = viewerMain.clientHeight - 64;
+        return Math.max(0.25, Math.min(4.0, Math.floor((availH / contentH) * 10) / 10));
+      }
+      return 0.9;
+    })();
+    const pageWrap = document.getElementById('viewer-page-wrap');
+    if (pageWrap) {
+      pageWrap.style.transform = targetZ !== 1.0 ? `scale(${targetZ})` : '';
+      pageWrap.style.transformOrigin = 'top center';
+    }
+
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
@@ -4927,20 +4946,8 @@ async function renderViewerMainPage(file, entry, canvas) {
       setupAnnOverlay(overlay, entry);
       drawAllAnnotations(entry);
     }
-    // 初回表示（ビューアを開いた直後 zoom=0）はdisplayViewport高さから自動フィット
-    if (state.viewerZoom === 0) {
-      const viewerMain = document.querySelector('.viewer-main');
-      const contentH = displayViewport.height; // 論理ピクセル高さ（padding込み前）
-      if (viewerMain && contentH > 0) {
-        const availH = viewerMain.clientHeight - 64; // padding 32px×2
-        const fitZ = Math.floor((availH / contentH) * 10) / 10;
-        applyViewerZoom(Math.max(0.25, Math.min(4.0, fitZ)), true);
-      } else {
-        applyViewerZoom(0.9, true);
-      }
-    } else {
-      applyViewerZoom(state.viewerZoom, true);
-    }
+    // レンダリング後に完全適用（マージン・scrollLeft を正確に再計算）
+    applyViewerZoom(targetZ, true);
 
     // 次ページ先読み
     if (entry.pageNum + 1 <= file.pdf.numPages) {
