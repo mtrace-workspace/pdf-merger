@@ -4469,6 +4469,10 @@ function clampViewerMemberIdx() {
 
 function renderExpansionModal() {
   const existing = document.getElementById('expanded-modal');
+  // リビルド前にサムネパネルのスクロール位置を保存
+  const savedThumbScroll = existing
+    ? (existing.querySelector('.viewer-thumbs')?.scrollTop ?? null)
+    : null;
   if (existing) existing.remove();
 
   if (!state.expandedGroupId) return;
@@ -4779,10 +4783,18 @@ function renderExpansionModal() {
   modal.appendChild(content);
   document.body.appendChild(modal);
 
-  // サムネパネルを現在ページにスクロール（クリックでリビルドしてもスクロール位置を保つ）
+  // サムネパネルのスクロール位置を復元（初回は current が見えるようにスクロール）
   requestAnimationFrame(() => {
-    const curThumb = modal.querySelector('.viewer-thumb.current');
-    if (curThumb) curThumb.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+    const thumbsCol = modal.querySelector('.viewer-thumbs');
+    if (!thumbsCol) return;
+    if (savedThumbScroll !== null) {
+      // リビルド前の位置をそのまま復元（クリックしても動かない）
+      thumbsCol.scrollTop = savedThumbScroll;
+    } else {
+      // 初回表示時のみ current サムネが見えるようにスクロール
+      const curThumb = thumbsCol.querySelector('.viewer-thumb.current');
+      if (curThumb) curThumb.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+    }
   });
 
   // モーダルDOMに追加後、メモリキャッシュがあれば即表示・なければキューへ
