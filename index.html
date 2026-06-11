@@ -1026,7 +1026,7 @@
     transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
     user-select: none;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.12);
-    width: 90px; /* デフォルト（サムネ来たら上書き） */
+    width: 120px;
   }
   .page-card:hover {
     border-color: rgba(0, 0, 0, 0.4);
@@ -3208,7 +3208,6 @@ function applyThumbToCard(fileId, pageNum, rotation, dataUrl, w, h) {
     if (!cv.parentElement) return;
     const card = cv.closest('.page-card');
     if (card && w > 0 && h > 0) {
-      card.style.width = (w + 12) + 'px';
       card.dataset.orientation = w > h ? 'landscape' : 'portrait';
     }
     cv.style.display = 'none';
@@ -3407,7 +3406,6 @@ function renderPageMode() {
       const dataUrl = cachedEntry.dataUrl || cachedEntry;
       const cachedW = cachedEntry.w || 0, cachedH = cachedEntry.h || 0;
       if (cachedW > 0 && cachedH > 0) {
-        card.style.width = (cachedW + 12) + 'px';
         card.dataset.orientation = cachedW > cachedH ? 'landscape' : 'portrait';
       }
       cv.style.display = 'none';
@@ -3903,7 +3901,6 @@ async function renderPageThumbnailNow(file, pageNum, canvas, rotation = 0) {
     const thumbDiv = canvas.parentElement;
     const card = canvas.closest('.page-card');
     if (card && w > 0 && h > 0) {
-      card.style.width = (w + 12) + 'px';
       card.dataset.orientation = w > h ? 'landscape' : 'portrait';
     }
     // canvasは参照用に残すだけ（レイアウトには影響させない）
@@ -3933,9 +3930,9 @@ async function renderPageThumbnailNow(file, pageNum, canvas, rotation = 0) {
   try {
     // item.pdfを直接使う（getThumbPdfのworker初期化待ちを回避）
     const page = await file.pdf.getPage(pageNum);
-    // PDFサイズ基準でスケール計算（固定枠なし）
+    // カード幅固定(120px)に合わせて常に同じ横幅で描画
     const baseVp = page.getViewport({ scale: 1, rotation });
-    const scale = Math.min(120 / baseVp.width, 160 / baseVp.height);
+    const scale = Math.min(108 / baseVp.width, 300 / baseVp.height);
     const viewport = page.getViewport({ scale, rotation });
     const offCanvas = document.createElement('canvas');
     offCanvas.width = Math.round(viewport.width);
