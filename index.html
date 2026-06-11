@@ -4459,7 +4459,7 @@ function reorderViewerMembers(fromMemberIdx, toMemberIdx) {
   if (state.viewerMemberIdx >= newMembers.length) state.viewerMemberIdx = newMembers.length - 1;
   if (state.viewerMemberIdx < 0) state.viewerMemberIdx = 0;
 
-  renderExpansionModal();
+  renderExpansionModal(true);
   refreshUI();
   statusText.textContent = `${fromMemberIdx + 1}枚目を${state.viewerMemberIdx + 1}枚目に移動`;
 }
@@ -4476,8 +4476,32 @@ function clampViewerMemberIdx() {
   return members;
 }
 
-function renderExpansionModal() {
+function renderExpansionModal(forceRebuild = false) {
   const existing = document.getElementById('expanded-modal');
+
+  // ── ナビゲーションのみの変化（ページ切替）はサムネリストを再構築せず差分更新
+  // → スクロール位置を一切変えない
+  if (!forceRebuild && existing && existing.dataset.groupId === state.expandedGroupId) {
+    const members = clampViewerMemberIdx();
+    const thumbs = existing.querySelectorAll('.viewer-thumb');
+    if (members && thumbs.length === members.length) {
+      const current = members[state.viewerMemberIdx];
+      const currentEntry = current.p;
+      const currentFile = state.files.find(f => f.id === currentEntry.fileId);
+      state.annSelectedId = null;
+      thumbs.forEach((t, i) => t.classList.toggle('current', i === state.viewerMemberIdx));
+      const navInd = existing.querySelector('.viewer-pageindicator');
+      if (navInd) navInd.textContent = `${state.viewerMemberIdx + 1} / ${members.length}`;
+      const navBtns = existing.querySelectorAll('.viewer-pagenav button');
+      if (navBtns[0]) navBtns[0].disabled = state.viewerMemberIdx === 0;
+      if (navBtns[1]) navBtns[1].disabled = state.viewerMemberIdx >= members.length - 1;
+      const mainCanvas = document.getElementById('viewer-pdf-canvas');
+      if (mainCanvas && currentFile) renderViewerMainPage(currentFile, currentEntry, mainCanvas);
+      return;
+    }
+  }
+
+  // ── フル再構築
   // リビルド前にサムネパネルのスクロール位置を保存
   const savedThumbScroll = existing
     ? (existing.querySelector('.viewer-thumbs')?.scrollTop ?? null)
@@ -4495,6 +4519,7 @@ function renderExpansionModal() {
   const modal = document.createElement('div');
   modal.id = 'expanded-modal';
   modal.className = 'expanded-modal';
+  modal.dataset.groupId = state.expandedGroupId;
 
   // ビューア内の空白で右クリック→現在ページのメニューを表示
   modal.addEventListener('contextmenu', e => {
@@ -5022,7 +5047,7 @@ function rotateCurrent(deg) {
     rotateAnnotationsForEntry(cur.p, norm, W, H);
   }
   cur.p.rotation = (((cur.p.rotation || 0) + deg) % 360 + 360) % 360;
-  renderExpansionModal();
+  renderExpansionModal(true);
   refreshUI();
 }
 
@@ -5097,7 +5122,7 @@ function duplicateCurrentViewerPage() {
   }
   state.pageOrder.splice(cur.idx + 1, 0, copy);
   state.viewerMemberIdx++;
-  renderExpansionModal();
+  renderExpansionModal(true);
   refreshUI();
 }
 
@@ -5120,7 +5145,7 @@ async function deleteCurrentViewerPage() {
     return;
   }
   if (state.viewerMemberIdx >= newMembers.length) state.viewerMemberIdx = newMembers.length - 1;
-  renderExpansionModal();
+  renderExpansionModal(true);
   refreshUI();
 }
 
@@ -5150,7 +5175,7 @@ async function extractCurrentViewerPage() {
   if (newMembers.length === 0) {
     closeGroupExpansion();
   } else {
-    renderExpansionModal();
+    renderExpansionModal(true);
   }
   refreshUI();
   scheduleSave();
@@ -5531,7 +5556,7 @@ function actPastePages(targetGroupId = null) {
   });
   // ビューアが開いていたら再レンダリング
   if (targetGroupId && state.expandedGroupId === targetGroupId) {
-    renderExpansionModal();
+    renderExpansionModal(true);
   }
   scheduleSave();
   if (typeof statusText !== 'undefined') statusText.textContent = `${pageClipboard.length}ページをペーストしました`;
@@ -6114,7 +6139,7 @@ document.addEventListener('keydown', e => {
       e.preventDefault();
       const groupId = state.expandedGroupId || null;
       actPastePages(groupId);
-      if (state.expandedGroupId) renderExpansionModal();
+      if (state.expandedGroupId) renderExpansionModal(true);
       return;
     }
   }
@@ -10260,7 +10285,7 @@ function showViewerContextMenu(e, memberIdx) {
         const groupId = m ? m.p.groupId : null;
         actPastePages(groupId);
         // ビューアを再レンダリング
-        renderExpansionModal();
+        renderExpansionModal(true);
       },
     }] : []),
     ...(annClipboard ? [{
@@ -11368,7 +11393,7 @@ function applyHistoryState(jsonStr) {
     refreshUI();
     // ビューア表示中なら再描画
     if (state.expandedGroupId) {
-      renderExpansionModal();
+      renderExpansionModal(true);
     }
     setTimeout(() => { isApplyingHistory = false; }, 50);
   } catch (e) {
