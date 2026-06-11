@@ -9986,7 +9986,17 @@ async function renderAnnotationLayerForEntry(entry, outScale = 4.0) {
 
   for (const a of annotations) {
     if (a._editing) continue;
-    annDraw(ctx, a);
+    // stamp/image/text の a.rotation はページ回転の累積値。
+    // コンテキストに entry.rotation の逆変換が既に適用されているため、
+    // a.rotation をそのまま使うと二重回転になる → PDF 出力時は 0 で描画。
+    if (rotation && a.rotation && (a.type === 'stamp' || a.type === 'image' || a.type === 'text')) {
+      const savedRot = a.rotation;
+      a.rotation = 0;
+      annDraw(ctx, a);
+      a.rotation = savedRot;
+    } else {
+      annDraw(ctx, a);
+    }
   }
 
   return canvas.toDataURL('image/png');
