@@ -5035,15 +5035,34 @@ function rotateCurrent(deg) {
   const members = clampViewerMemberIdx();
   if (!members) return;
   const cur = members[state.viewerMemberIdx];
-  // 回転前のキャンバスサイズを取得（ビューア座標系）
-  const overlay = document.getElementById('viewer-ann-overlay');
-  if (overlay && overlay.width > 0 && overlay.height > 0) {
-    const W = overlay.width;
-    const H = overlay.height;
-    const norm = ((deg % 360) + 360) % 360;
-    rotateAnnotationsForEntry(cur.p, norm, W, H);
+  const entry = cur.p;
+
+  // 回転前の W/H を取得する優先順位:
+  //   1. entry._viewerW/_viewerH（保存済み。ページ切替後の非同期レンダリング中でも正確）
+  //   2. overlay.width/height（フォールバック）
+  // _viewerW/_viewerH は「回転なし」のサイズなので、
+  // 現在の rotation に合わせて適切に入れ替えて使う
+  let W, H;
+  const currentRot = entry.rotation || 0;
+  if (entry._viewerW && entry._viewerH) {
+    W = (currentRot === 90 || currentRot === 270) ? entry._viewerH : entry._viewerW;
+    H = (currentRot === 90 || currentRot === 270) ? entry._viewerW : entry._viewerH;
+  } else {
+    const overlay = document.getElementById('viewer-ann-overlay');
+    if (!overlay || overlay.width === 0 || overlay.height === 0) {
+      // 寸法が取れない場合は注釈変換をスキップして回転だけ適用
+      entry.rotation = (((currentRot) + deg) % 360 + 360) % 360;
+      renderExpansionModal(true);
+      refreshUI();
+      return;
+    }
+    W = overlay.width;
+    H = overlay.height;
   }
-  cur.p.rotation = (((cur.p.rotation || 0) + deg) % 360 + 360) % 360;
+
+  const norm = ((deg % 360) + 360) % 360;
+  rotateAnnotationsForEntry(entry, norm, W, H);
+  entry.rotation = (((currentRot) + deg) % 360 + 360) % 360;
   renderExpansionModal(true);
   refreshUI();
 }
