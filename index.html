@@ -3018,26 +3018,29 @@ async function loadFiles(files) {
 }
 
 
-// 画像ファイル → PDFバイト配列（pdf-lib）
-async function imageToPdfBytes(imageFile) {
-  const { PDFDocument } = PDFLib;
-  const imgBytes = await imageFile.arrayBuffer();
-  const ext = (imageFile.name.split('.').pop() || '').toLowerCase();
-  const isJpg = (imageFile.type === 'image/jpeg' || ['jpg','jpeg'].includes(ext));
-  const isPng = (imageFile.type === 'image/png' || ext === 'png');
+// EXIF回転を適用済みのピクセルに正規化した画像を取得する
+// → スマホ写真などで「縦が横／横が縦」になる問題を防ぐ
+//   返り値: { bytes: Uint8Array, format: 'jpg'|'png' }
+async function normalizeImageBytes(imageFile, isJpg) {
+  const blob = (imageFile instanceof Blob) ? imageFile : new Blob([await imageFile.arrayBuffer()], { type: imageFile.type });
 
-  // GIF/WebP/BMPはPNGに変換してから埋め込む
-  let imgBufForEmbed;
-  let useFormat = 'png';
-  if (isJpg) {
-    imgBufForEmbed = imgBytes;
-    useFormat = 'jpg';
-  } else if (isPng) {
-    imgBufForEmbed = imgBytes;
-    useFormat = 'png';
+  // 1. EXIF向きを適用してビットマップ化（createImageBitmap が最も確実）
+  let bitmap = null;
+  try {
+    bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+  } catch (e) {
+    // imageOrientation 未対応ブラウザのフォールバック
+    try { bitmap = await createImageBitmap(blob); } catch (e2) { bitmap = null; }
+  }
+
+  // 2. <img> フォールバック（createImageBitmap自体が使えない場合）
+  let drawSource, drawW, drawH;
+  let usedImgFallback = false;
+  if (bitmap) {
+    drawSource = bitmap;
+    drawW = bitmap.width;
+    drawH = bitmap.height;
   } else {
-    // canvas経由でPNGに変換
-    const blob = new Blob([imgBytes], { type: imageFile.type || 'image/png' });
     const url = URL.createObjectURL(blob);
     try {
       const img = new Image();
@@ -3046,25 +3049,49 @@ async function imageToPdfBytes(imageFile) {
         img.onerror = () => rej(new Error('画像の読み込みに失敗'));
         img.src = url;
       });
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      const dataUrl = canvas.toDataURL('image/png');
-      // Base64 → ArrayBuffer
-      const base64 = dataUrl.split(',')[1];
-      const binaryString = atob(base64);
-      const len = binaryString.length;
-      imgBufForEmbed = new Uint8Array(len);
-      for (let i = 0; i < len; i++) imgBufForEmbed[i] = binaryString.charCodeAt(i);
+      drawSource = img;
+      drawW = img.naturalWidth;
+      drawH = img.naturalHeight;
+      usedImgFallback = true;
     } finally {
-      URL.revokeObjectURL(url);
+      // drawImage後にrevokeするためここでは消さない
+      drawSource._objUrl = url;
     }
-    useFormat = 'png';
   }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = drawW;
+  canvas.height = drawH;
+  const ctx = canvas.getContext('2d');
+  // JPEGは透過がないので白背景。PNGは透過保持のため塗らない。
+  if (isJpg) {
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.drawImage(drawSource, 0, 0, drawW, drawH);
+  if (bitmap && bitmap.close) bitmap.close();
+  if (usedImgFallback && drawSource._objUrl) URL.revokeObjectURL(drawSource._objUrl);
+
+  const format = isJpg ? 'jpg' : 'png';
+  const mime = isJpg ? 'image/jpeg' : 'image/png';
+  const dataUrl = canvas.toDataURL(mime, isJpg ? 0.92 : undefined);
+  const base64 = dataUrl.split(',')[1];
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+  return { bytes, format };
+}
+
+// 画像ファイル → PDFバイト配列（pdf-lib）
+async function imageToPdfBytes(imageFile) {
+  const { PDFDocument } = PDFLib;
+  const ext = (imageFile.name.split('.').pop() || '').toLowerCase();
+  const isJpg = (imageFile.type === 'image/jpeg' || ['jpg','jpeg'].includes(ext));
+
+  // すべての画像を canvas 経由で正規化（EXIF回転を焼き込む）してから埋め込む。
+  // JPGはJPGのまま（圧縮維持）、それ以外はPNGに変換。
+  const { bytes: imgBufForEmbed, format: useFormat } = await normalizeImageBytes(imageFile, isJpg);
 
   const pdfDoc = await PDFDocument.create();
   const embedded = (useFormat === 'jpg')
@@ -3930,10 +3957,12 @@ async function renderPageThumbnailNow(file, pageNum, canvas, rotation = 0) {
   try {
     // item.pdfを直接使う（getThumbPdfのworker初期化待ちを回避）
     const page = await file.pdf.getPage(pageNum);
+    // PDF固有の回転(/Rotate)＋ユーザー回転を合算（固有回転を無視すると向きが崩れる）
+    const effRot = (((page.rotate || 0) + (rotation || 0)) % 360 + 360) % 360;
     // カード幅固定(120px)に合わせて常に同じ横幅で描画
-    const baseVp = page.getViewport({ scale: 1, rotation });
+    const baseVp = page.getViewport({ scale: 1, rotation: effRot });
     const scale = Math.min(108 / baseVp.width, 300 / baseVp.height);
-    const viewport = page.getViewport({ scale, rotation });
+    const viewport = page.getViewport({ scale, rotation: effRot });
     const offCanvas = document.createElement('canvas');
     offCanvas.width = Math.round(viewport.width);
     offCanvas.height = Math.round(viewport.height);
@@ -4369,8 +4398,7 @@ function openGroupExpansion(groupId) {
         if (db) { pageThumbCache.set(memKey, db); applyThumbToCard(file.id, p.pageNum, p.rotation || 0, db); return; }
         const thumbPdf = await getThumbPdf(file);
         const page = await thumbPdf.getPage(p.pageNum);
-        const rot = p.rotation || 0;
-        const baseVp = page.getViewport({ scale: 1, rotation: rot });
+        const rot = (((page.rotate || 0) + (p.rotation || 0)) % 360 + 360) % 360;
         const baseVp2 = page.getViewport({ scale: 1, rotation: rot });
         const scale = Math.min(270 / baseVp2.width, 240 / baseVp2.height);
         const viewport = page.getViewport({ scale, rotation: rot });
@@ -4928,9 +4956,10 @@ async function renderViewerMainPage(file, entry, canvas) {
     const logicalScale = Math.min(3.0, targetH / baseVp.height);
     state.viewerScale = logicalScale;
     entry._viewerScale = logicalScale;
-    entry._viewerW = baseVp.width  * logicalScale;   // 回転なしのオーバーレイ幅（注釈座標の基準）
-    entry._viewerH = baseVp.height * logicalScale;   // 回転なしのオーバーレイ高さ
-    const rotation = entry.rotation || 0;
+    entry._viewerW = baseVp.width  * logicalScale;   // 固有回転適用済み・ユーザー回転前のオーバーレイ幅（注釈座標の基準）
+    entry._viewerH = baseVp.height * logicalScale;   // 同・高さ
+    // PDF固有の回転(/Rotate)＋ユーザー回転を合算
+    const rotation = (((page.rotate || 0) + (entry.rotation || 0)) % 360 + 360) % 360;
     const dpr = window.devicePixelRatio || 1;
     const renderBoost = 2.0;
     const renderScale = logicalScale * dpr * renderBoost;
@@ -6016,7 +6045,8 @@ async function exportAsJpeg(quality = 0.92) {
 
       try {
         const page = await file.pdf.getPage(entry.pageNum);
-        const rotation = entry.rotation || 0;
+        // PDF固有の回転(/Rotate)＋ユーザー回転を合算
+        const rotation = (((page.rotate || 0) + (entry.rotation || 0)) % 360 + 360) % 360;
         // 最高品質：scale 4.0（300DPI相当）
         const scale = 3.0;
         const viewport = page.getViewport({ scale, rotation });
@@ -6596,12 +6626,14 @@ function annOnMouseUp(e, overlay, entry) {
         if (!file) return;
         const pdf = file._viewerPdf ? await file._viewerPdf : file.pdf;
         const page = await pdf.getPage(entry.pageNum);
-        const baseVp = page.getViewport({ scale: 1, rotation: 0 });
+        // viewerScaleは固有回転適用済みの高さ基準（renderViewerMainPageと同じ）
+        const baseVp = page.getViewport({ scale: 1 });
         const viewerScale = (entry._viewerScale) || Math.min(3.0, 1100 / baseVp.height);
         // 高画質キャプチャ：viewerScaleの2倍＋DPR考慮
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const captureScale = viewerScale * 2 * dpr;
-        const rotation = entry.rotation || 0;
+        // PDF固有の回転(/Rotate)＋ユーザー回転を合算
+        const rotation = (((page.rotate || 0) + (entry.rotation || 0)) % 360 + 360) % 360;
         const vp = page.getViewport({ scale: captureScale, rotation });
         const offCanvas = document.createElement('canvas');
         offCanvas.width = Math.round(vp.width);
@@ -7036,16 +7068,19 @@ function drawAllAnnotations(entry) {
 async function overlayAnnotationsOnThumb(canvas, file, page, baseDataUrl, w, h, thumbScale, cacheKey, dbKey, entryUid, anns) {
   try {
     const entry = state.pageOrder.find(p => p.uid === entryUid);
-    const rotation = entry ? (entry.rotation || 0) : 0;
+    const userRot = entry ? (entry.rotation || 0) : 0;
+    // PDF固有の回転(/Rotate)＋ユーザー回転を合算（ビューアの表示座標系と一致させる）
+    const rotation = (((page.rotate || 0) + userRot) % 360 + 360) % 360;
 
-    // viewerScaleはrotationなしのbaseVpから計算（renderViewerMainPageと同じ）
-    const baseVpNoRot = page.getViewport({ scale: 1, rotation: 0 });
+    // viewerScaleは固有回転適用済みの高さ基準（renderViewerMainPageと同じ）
+    const baseVp = page.getViewport({ scale: 1 });
     const viewerScale = (entry && entry._viewerScale) ||
-      Math.min(3.0, 1100 / baseVpNoRot.height);
+      Math.min(3.0, 1100 / baseVp.height);
 
-    // overlayのサイズ（注釈座標の基準）= rotationなしbaseVp × viewerScale
-    const overlayW = baseVpNoRot.width * viewerScale;
-    const overlayH = baseVpNoRot.height * viewerScale;
+    // overlayのサイズ（注釈座標の基準）= 表示ビューポート（固有+ユーザー回転） × viewerScale
+    const dispVp = page.getViewport({ scale: viewerScale, rotation });
+    const overlayW = dispVp.width;
+    const overlayH = dispVp.height;
 
     // 渡されたサムネサイズ(w,h)に対する変換比率
     const ratioX = w / overlayW;
@@ -7067,7 +7102,7 @@ async function overlayAnnotationsOnThumb(canvas, file, page, baseDataUrl, w, h, 
     finalCtx.restore();
 
     const finalDataUrl = finalCanvas.toDataURL('image/jpeg', 0.85);
-    const annCacheKey = `uid_${entryUid}_r${rotation}`;
+    const annCacheKey = `uid_${entryUid}_r${userRot}`;
     pageThumbCache.set(annCacheKey, { dataUrl: finalDataUrl, w, h });
     saveThumbToDB(dbKey, finalDataUrl);
 
@@ -8244,7 +8279,8 @@ async function overlayToPdfCoords(x, y, overlayW, overlayH, entry) {
   const file = state.files.find(f => f.id === entry.fileId);
   if (!file) return null;
   const page = await file.pdf.getPage(entry.pageNum);
-  const rotation = entry.rotation || 0;
+  // PDF固有の回転(/Rotate)＋ユーザー回転を合算
+  const rotation = (((page.rotate || 0) + (entry.rotation || 0)) % 360 + 360) % 360;
   const viewerScale = entry._viewerScale || 1.5;
   const rotatedVp = page.getViewport({ scale: viewerScale, rotation });
   const rawVp = page.getViewport({ scale: 1, rotation: 0 });
@@ -9937,7 +9973,8 @@ async function renderAnnotationLayerForEntry(entry, outScale = 4.0) {
   const file = state.files.find(f => f.id === entry.fileId);
   if (!file) return null;
   const page = await file.pdf.getPage(entry.pageNum);
-  const rotation = entry.rotation || 0;
+  // PDF固有の回転(/Rotate)＋ユーザー回転を合算（出力ページの最終回転と一致させる）
+  const rotation = (((page.rotate || 0) + (entry.rotation || 0)) % 360 + 360) % 360;
 
   // 回転後のビューポート（注釈座標系）
   const rotatedVp = page.getViewport({ scale: 1, rotation });
@@ -10392,7 +10429,8 @@ async function runOCR(pageIdx) {
     // PDFページを高解像度で描画
     const pdf = file.pdf;
     const page = await pdf.getPage(entry.pageNum);
-    const vp = page.getViewport({ scale: 4.0, rotation: entry.rotation || 0 });
+    const ocrRot = (((page.rotate || 0) + (entry.rotation || 0)) % 360 + 360) % 360;
+    const vp = page.getViewport({ scale: 4.0, rotation: ocrRot });
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(vp.width);
     canvas.height = Math.round(vp.height);
@@ -10595,7 +10633,7 @@ function showAllPagesGrid() {
       if (!file || !file.pdf) return;
       try {
         const page = await file.pdf.getPage(m.p.pageNum);
-        const rotation = m.p.rotation || 0;
+        const rotation = (((page.rotate || 0) + (m.p.rotation || 0)) % 360 + 360) % 360;
         const baseVp = page.getViewport({ scale: 1, rotation });
         // グリッドセル幅に合わせてスケール（280pxを基準）
         const scale = 280 / baseVp.width;
@@ -11164,7 +11202,8 @@ function tryCopyPageToFolder(pageData, targetFolderId) {
 
 // ファイルのハッシュキー（name+size+lastModified）
 function fileThumbKey(file, pageNum, rotation) {
-  return `${file.name}_${file.size}_${file.lastModified}_p${pageNum}_r${rotation}_s2`;
+  // _s3: PDF固有回転(/Rotate)を反映する描画修正に伴いキャッシュを無効化
+  return `${file.name}_${file.size}_${file.lastModified}_p${pageNum}_r${rotation}_s3`;
 }
 
 // サムネをIndexedDBに保存
