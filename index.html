@@ -10005,18 +10005,18 @@ async function renderAnnotationLayerForEntry(entry, outScale = 4.0) {
   // 2. 回転を逆方向にかけて、注釈の座標系（=回転後）→ rawVp座標系（=回転前）に変換
   // 3. 注釈を描画（注釈の座標は viewerScale で保存されているので、最初に 1/viewerScale もかける）
   ctx.scale(outScale, outScale);
-  // 回転前の座標系に変換
+  // 表示座標系（=回転後）→ rawVp座標系（=回転前）への逆変換。
+  // ※ ブラウザ実機テストで検証済み（pdf-lib setRotation + pdf.js 描画）：
+  //   90°/270° は下記の向きが正しい（以前は90と270が逆で180°ずれていた）。
   if (rotation === 90) {
-    // 注釈座標系（rotatedVp）から見て、X軸=元のY、Y軸=(rotatedVp.height - 元のX)
-    // 逆変換: 元のX=(rotatedVp.height - newY), 元のY=newX → drawするときに逆回転で書く
-    ctx.translate(rawVp.width, 0);
-    ctx.rotate(Math.PI / 2);
+    ctx.translate(0, rawVp.height);
+    ctx.rotate(-Math.PI / 2);
   } else if (rotation === 180) {
     ctx.translate(rawVp.width, rawVp.height);
     ctx.rotate(Math.PI);
   } else if (rotation === 270) {
-    ctx.translate(0, rawVp.height);
-    ctx.rotate(-Math.PI / 2);
+    ctx.translate(rawVp.width, 0);
+    ctx.rotate(Math.PI / 2);
   }
   // viewerScaleで保存された座標を pt 座標に
   ctx.scale(1 / viewerScale, 1 / viewerScale);
