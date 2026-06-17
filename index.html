@@ -7200,7 +7200,8 @@ function annDraw(ctx, a) {
   ctx.strokeStyle = a.color;
   ctx.fillStyle = a.color;
   ctx.lineWidth = a.width || 2;
-  const noStroke = !a.color || a.color === 'transparent';
+  // 枠の太さ0＝枠なし（白塗り図形で縁に枠色が残るのを防ぎ、完全に塗りつぶせるようにする）
+  const noStroke = !a.color || a.color === 'transparent' || a.width === 0;
 
   if (a.type === 'rect') {
     const rot = a.rotation || 0;
@@ -8962,11 +8963,11 @@ function buildAnnPanel() {
   })());
 
   // ── 各行を変数として定義 ──
-  const lineWidthRow = propRow('枠の太さ', (() => {
+  const lineWidthRow = propRow('枠の太さ (0=枠なし)', (() => {
     const inp = document.createElement('input');
-    inp.type = 'number'; inp.min = 1; inp.max = 20; inp.value = state.lineWidth;
+    inp.type = 'number'; inp.min = 0; inp.max = 20; inp.value = state.lineWidth;
     inp.addEventListener('input', e => {
-      state.lineWidth = +e.target.value;
+      state.lineWidth = Math.max(0, +e.target.value || 0);
       annApplyToSelected({ width: state.lineWidth });
     });
     return inp;
