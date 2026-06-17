@@ -5143,7 +5143,7 @@ function rotateAnnotationsForEntry(entry, deg, W, H) {
       a.x = p.x;
       a.y = p.y;
       a.rotation = (((a.rotation || 0) + deg) % 360 + 360) % 360;
-    } else if (a.type === 'polygon') {
+    } else if (a.type === 'polygon' || a.type === 'polyline') {
       if (a.points) {
         a.points = a.points.map(pt => rotPoint(pt.x, pt.y));
       }
@@ -6382,7 +6382,7 @@ function annOnMouseDown(e, overlay, entry) {
         if (handle) {
           annDrawing = true;
           const origCopy = {...sel};
-          if (sel.type === 'polygon' && sel.points) origCopy.points = sel.points.map(pt => ({...pt}));
+          if (sel.points) origCopy.points = sel.points.map(pt => ({...pt}));
           annDragOffset = { mode: 'resize', handle, orig: origCopy };
           return; // パン登録しない
         }
@@ -6394,7 +6394,7 @@ function annOnMouseDown(e, overlay, entry) {
       state.annSelectedId = hit.id;
       annDrawing = true;
       const origCopy = {...hit};
-      if (hit.type === 'polygon' && hit.points) origCopy.points = hit.points.map(pt => ({...pt}));
+      if (hit.points) origCopy.points = hit.points.map(pt => ({...pt}));
       annDragOffset = { x: p.x, y: p.y, orig: origCopy };
       drawAllAnnotations(entry);
       return; // パン登録しない
@@ -6438,10 +6438,10 @@ function annOnMouseDown(e, overlay, entry) {
     return;
   }
 
-  if (state.tool === 'polygon') {
+  if (state.tool === 'polygon' || state.tool === 'polyline') {
     e.preventDefault();
-    // 始点に近ければ閉じる
-    if (polygonPoints && polygonPoints.length >= 3) {
+    // 多角形のみ：始点に近ければ閉じる（折れ線は閉じない）
+    if (state.tool === 'polygon' && polygonPoints && polygonPoints.length >= 3) {
       const start = polygonPoints[0];
       if (Math.hypot(p.x - start.x, p.y - start.y) <= 10) {
         finalizePolygon(entry);
@@ -6487,7 +6487,7 @@ function annOnMouseDown(e, overlay, entry) {
 
 function annOnMouseMove(e, overlay, entry) {
   // 多角形描画中はマウス位置を更新しプレビュー再描画
-  if (state.tool === 'polygon' && polygonPoints && polygonPoints.length > 0) {
+  if ((state.tool === 'polygon' || state.tool === 'polyline') && polygonPoints && polygonPoints.length > 0) {
     polygonMousePos = getAnnMousePos(e, overlay, entry);
     drawAllAnnotations(entry);
     return;
@@ -6555,7 +6555,7 @@ function annOnMouseMove(e, overlay, entry) {
       } else if (ann.type === 'line' || ann.type === 'arrow') {
         if (handle === 'p0') { ann.x = p.x; ann.y = p.y; }
         else if (handle === 'p1') { ann.x2 = p.x; ann.y2 = p.y; }
-      } else if (ann.type === 'polygon' && ann.points) {
+      } else if (ann.points) {
         const i = parseInt(handle.slice(1), 10);
         if (!isNaN(i) && ann.points[i]) {
           ann.points[i] = { x: p.x, y: p.y };
@@ -6567,8 +6567,8 @@ function annOnMouseMove(e, overlay, entry) {
     const dx = p.x - annDragOffset.x;
     const dy = p.y - annDragOffset.y;
     const orig = annDragOffset.orig;
-    if (ann.type === 'polygon' && orig.points) {
-      // 多角形：全頂点をオフセット
+    if (orig.points) {
+      // 多角形・折れ線：全頂点をオフセット
       ann.points = orig.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }));
     } else {
       ann.x = orig.x + dx;
@@ -6692,8 +6692,13 @@ function annOnMouseUp(e, overlay, entry) {
 }
 
 function annOnDblClick(e, overlay, entry) {
-  // 多角形作成中はダブルクリックで確定
+  // 多角形・折れ線作成中はダブルクリックで確定
   if (state.tool === 'polygon' && polygonPoints && polygonPoints.length >= 3) {
+    e.preventDefault();
+    finalizePolygon(entry);
+    return;
+  }
+  if (state.tool === 'polyline' && polygonPoints && polygonPoints.length >= 2) {
     e.preventDefault();
     finalizePolygon(entry);
     return;
@@ -6710,15 +6715,29 @@ function annOnDblClick(e, overlay, entry) {
   }
 }
 
-// 多角形を確定して注釈に追加
+// 多角形・折れ線を確定して注釈に追加
 function finalizePolygon(entry) {
-  if (!polygonPoints || polygonPoints.length < 3) {
+  const isPolyline = state.tool === 'polyline';
+  // ダブルクリック終了時に末尾へ重複点が入ることがあるので除去
+  if (polygonPoints && polygonPoints.length >= 2) {
+    const a = polygonPoints[polygonPoints.length - 1];
+    const b = polygonPoints[polygonPoints.length - 2];
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 2) polygonPoints.pop();
+  }
+  const minPts = isPolyline ? 2 : 3;
+  if (!polygonPoints || polygonPoints.length < minPts) {
     polygonPoints = null;
     polygonMousePos = null;
     drawAllAnnotations(entry);
     return;
   }
-  const ann = {
+  const ann = isPolyline ? {
+    id: Date.now() + Math.random(),
+    type: 'polyline',
+    points: polygonPoints.map(pt => ({...pt})),
+    color: state.color,
+    width: state.lineWidth || 2,
+  } : {
     id: Date.now() + Math.random(),
     type: 'polygon',
     points: polygonPoints.map(pt => ({...pt})),
@@ -6961,10 +6980,12 @@ function annHitTest(a, p) {
     return testX >= a.x && testX <= a.x + w &&
            testY >= a.y - a.fontSize && testY <= a.y - a.fontSize + h;
   }
-  if (a.type === 'polygon') {
-    if (!a.points || a.points.length < 3) return false;
-    // 塗りがあるなら内部も含めて判定、ないなら線上のみ
-    if (a.fill === 'fill' || a.fill === 'semi') {
+  if (a.type === 'polygon' || a.type === 'polyline') {
+    const isOpen = a.type === 'polyline';
+    const minPts = isOpen ? 2 : 3;
+    if (!a.points || a.points.length < minPts) return false;
+    // 多角形で塗りがあるなら内部も含めて判定、ないなら線上のみ
+    if (!isOpen && (a.fill === 'fill' || a.fill === 'semi')) {
       // ray casting algorithm
       let inside = false;
       const pts = a.points;
@@ -6977,9 +6998,10 @@ function annHitTest(a, p) {
       }
       if (inside) return true;
     }
-    // 各辺との距離で判定（線のみの場合・縁の判定）
+    // 各辺との距離で判定（折れ線は閉じ辺を含めない）
     const pts = a.points;
-    for (let i = 0; i < pts.length; i++) {
+    const segCount = isOpen ? pts.length - 1 : pts.length;
+    for (let i = 0; i < segCount; i++) {
       const a1 = pts[i];
       const a2 = pts[(i + 1) % pts.length];
       const dx = a2.x - a1.x, dy = a2.y - a1.y;
@@ -7160,8 +7182,8 @@ function drawPolygonPreview(ctx) {
     ctx.moveTo(last.x, last.y);
     ctx.lineTo(polygonMousePos.x, polygonMousePos.y);
     ctx.stroke();
-    // 始点付近にマウスがあるなら、始点までの閉じ線を表示
-    if (polygonPoints.length >= 3) {
+    // 始点付近にマウスがあるなら、始点までの閉じ線を表示（折れ線は閉じないので非表示）
+    if (state.tool !== 'polyline' && polygonPoints.length >= 3) {
       const start = polygonPoints[0];
       const dist = Math.hypot(polygonMousePos.x - start.x, polygonMousePos.y - start.y);
       if (dist <= 10) {
@@ -7176,7 +7198,7 @@ function drawPolygonPreview(ctx) {
   // 頂点マーカー
   polygonPoints.forEach((pt, i) => {
     ctx.save();
-    if (i === 0 && polygonPoints.length >= 3) {
+    if (i === 0 && state.tool !== 'polyline' && polygonPoints.length >= 3) {
       // 始点は閉じる目印として強調表示
       ctx.fillStyle = state.color;
       ctx.beginPath();
@@ -7433,26 +7455,30 @@ function annDraw(ctx, a) {
       }
     });
     ctx.restore();
-  } else if (a.type === 'polygon') {
+  } else if (a.type === 'polygon' || a.type === 'polyline') {
     if (!a.points || a.points.length < 2) return;
+    const isOpen = a.type === 'polyline';
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(a.points[0].x, a.points[0].y);
     for (let i = 1; i < a.points.length; i++) {
       ctx.lineTo(a.points[i].x, a.points[i].y);
     }
-    ctx.closePath();
-    if (a.fill === 'fill' || a.fill === 'semi') {
-      const opacity = a.fillOpacity !== undefined ? a.fillOpacity : (a.fill === 'semi' ? 0.3 : 1.0);
-      ctx.save();
-      ctx.fillStyle = a.fillColor || a.color;
-      ctx.globalAlpha = opacity;
-      ctx.fill();
-      ctx.restore();
+    if (!isOpen) {
+      ctx.closePath();
+      if (a.fill === 'fill' || a.fill === 'semi') {
+        const opacity = a.fillOpacity !== undefined ? a.fillOpacity : (a.fill === 'semi' ? 0.3 : 1.0);
+        ctx.save();
+        ctx.fillStyle = a.fillColor || a.color;
+        ctx.globalAlpha = opacity;
+        ctx.fill();
+        ctx.restore();
+      }
     }
     ctx.strokeStyle = a.color;
     ctx.lineWidth = a.width || 2;
     ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     ctx.stroke();
     ctx.restore();
   }
@@ -7484,7 +7510,7 @@ function annDrawSelection(ctx, a) {
     ctx.restore();
     drawEndpointHandles(ctx, [{x: a.x, y: a.y}, {x: a.x2, y: a.y2}]);
     return;
-  } else if (a.type === 'polygon') {
+  } else if (a.type === 'polygon' || a.type === 'polyline') {
     if (!a.points || a.points.length === 0) { ctx.restore(); return; }
     x1 = Infinity; y1 = Infinity; x2 = -Infinity; y2 = -Infinity;
     a.points.forEach(pt => {
@@ -7640,7 +7666,7 @@ function detectHandle(a, p) {
   } else if (a.type === 'line' || a.type === 'arrow') {
     if (Math.hypot(p.x - a.x, p.y - a.y) <= TOL) return 'p0';
     if (Math.hypot(p.x - a.x2, p.y - a.y2) <= TOL) return 'p1';
-  } else if (a.type === 'polygon' && a.points) {
+  } else if ((a.type === 'polygon' || a.type === 'polyline') && a.points) {
     for (let i = 0; i < a.points.length; i++) {
       const pt = a.points[i];
       if (Math.hypot(p.x - pt.x, p.y - pt.y) <= TOL) return 'p' + i;
@@ -7678,7 +7704,7 @@ function annPasteFromClipboard() {
   const newAnn = deepCloneAnnotation(annClipboard);
   newAnn.id = Date.now() + Math.random();
   const offset = 20;
-  if (newAnn.type === 'polygon' && newAnn.points) {
+  if (newAnn.points) {
     newAnn.points = newAnn.points.map(pt => ({ x: pt.x + offset, y: pt.y + offset }));
   } else {
     if (newAnn.x !== undefined) newAnn.x += offset;
@@ -7700,7 +7726,7 @@ function annDuplicateSelected() {
   const newAnn = deepCloneAnnotation(ann);
   newAnn.id = Date.now() + Math.random();
   const offset = 20;
-  if (newAnn.type === 'polygon' && newAnn.points) {
+  if (newAnn.points) {
     newAnn.points = newAnn.points.map(pt => ({ x: pt.x + offset, y: pt.y + offset }));
   } else {
     if (newAnn.x !== undefined) newAnn.x += offset;
@@ -7978,6 +8004,7 @@ function buildAnnToolRow() {
     { id: 'line',   title: '線 (L)', svg: '<path d="M4 20L20 4"/>' },
     { id: 'arrow',  title: '矢印 (A)', svg: '<path d="M4 20L20 4M20 4h-8M20 4v8"/>' },
     { id: 'polygon', title: '多角形 (P)', svg: '<path d="M12 3l9 7-3 11h-12l-3-11z"/>' },
+    { id: 'polyline', title: '折れ線 (G)：クリックで頂点追加・ダブルクリックで終了', svg: '<path d="M3 17l5-7 4 4 5-8 4 5"/>' },
     { id: 'highlight', title: '蛍光 (H)', svg: '<path d="M3 21h18M7 17l-2 4h4l6-12-4-2z"/>' },
     { id: 'stamp', title: '印鑑 (S)', svg: '<circle cx="12" cy="9" r="5"/><path d="M5 21h14M7 18h10v3H7z"/>' },
     { id: 'capture', title: 'キャプチャ：範囲をドラッグして画像として貼り付け', svg: '<path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2"/><rect x="8" y="8" width="8" height="8" rx="1"/>' },
@@ -7989,8 +8016,8 @@ function buildAnnToolRow() {
     btn.dataset.tool = t.id;
     btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${t.svg}</svg>`;
     btn.addEventListener('click', () => {
-      // 多角形作成中で別ツールに切り替えるならキャンセル
-      if (state.tool === 'polygon' && t.id !== 'polygon' && polygonPoints) {
+      // 多角形・折れ線作成中で別ツールに切り替えるならキャンセル
+      if ((state.tool === 'polygon' || state.tool === 'polyline') && t.id !== state.tool && polygonPoints) {
         cancelPolygon();
       }
       state.tool = t.id;
@@ -10806,7 +10833,8 @@ document.addEventListener('keydown', e => {
   // 多角形作成中
   if (polygonPoints && polygonPoints.length > 0) {
     if (e.key === 'Escape') { e.preventDefault(); cancelPolygon(); return; }
-    if (e.key === 'Enter' && polygonPoints.length >= 3 && annCurrentEntry) {
+    const finMin = state.tool === 'polyline' ? 2 : 3;
+    if (e.key === 'Enter' && polygonPoints.length >= finMin && annCurrentEntry) {
       e.preventDefault(); finalizePolygon(annCurrentEntry); return;
     }
     if (e.key === 'Backspace') {
@@ -10850,11 +10878,11 @@ document.addEventListener('keydown', e => {
       }
     }
   }
-  const map = { v:'select', r:'rect', t:'text', l:'line', a:'arrow', p:'polygon', h:'highlight', s:'stamp' };
+  const map = { v:'select', r:'rect', t:'text', l:'line', a:'arrow', p:'polygon', g:'polyline', h:'highlight', s:'stamp' };
   if (!e.ctrlKey && !e.metaKey && map[k]) {
     state.tool = map[k];
     state.annSelectedId = null;
-    if (map[k] !== 'polygon') cancelPolygon();
+    if (map[k] !== 'polygon' && map[k] !== 'polyline') cancelPolygon();
     document.querySelectorAll('.ann-tool[data-tool]').forEach(b => {
       b.classList.toggle('active', b.dataset.tool === state.tool);
     });
