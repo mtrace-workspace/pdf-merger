@@ -2422,6 +2422,20 @@ if (missing.length > 0) {
 init();
 });
 
+// PDF.js 共通ロードオプション：日本語(CIDフォント)や標準14フォントの
+// 文字を正しく描画・抽出するために cMap / standardFontData の URL を指定する。
+// 未指定だと日本語PDFで「枠は出るが文字が出ない」状態になる。
+const PDFJS_ASSET_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
+const PDF_LOAD_OPTS = {
+  cMapUrl: PDFJS_ASSET_BASE + 'cmaps/',
+  cMapPacked: true,
+  standardFontDataUrl: PDFJS_ASSET_BASE + 'standard_fonts/',
+};
+// data(ArrayBuffer/Uint8Array) から PDF をロードする共通関数（loadingTaskを返す）
+function loadPdfDoc(data) {
+  return pdfjsLib.getDocument({ data, ...PDF_LOAD_OPTS });
+}
+
 function init() {
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -2438,7 +2452,7 @@ async function getThumbPdf(file) {
   if (!thumbPdfPool.has(file.id)) {
     // THUMB_WORKER_COUNT 個の独立したPDFDocumentを並列生成
     const promises = Array.from({ length: THUMB_WORKER_COUNT }, () =>
-      pdfjsLib.getDocument({ data: file.bytes.slice(0) }).promise
+      loadPdfDoc(file.bytes.slice(0)).promise
     );
     thumbPdfPool.set(file.id, { docs: promises, idx: 0 });
   }
@@ -2930,7 +2944,7 @@ async function loadFiles(files) {
   const loadResults = await Promise.allSettled(
     processedFiles.map(async ({ file }) => {
       const bytes = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+      const pdf = await loadPdfDoc(bytes.slice(0)).promise;
       return { file, bytes, pdf };
     })
   );
@@ -2965,7 +2979,7 @@ async function loadFiles(files) {
       };
       state.files.push(item);
       // メインビュー用PDFインスタンスを事前生成（ビューアを開いた時に待ち時間ゼロ）
-      item._viewerPdf = pdfjsLib.getDocument({ data: item.bytes.slice(0) }).promise;
+      item._viewerPdf = loadPdfDoc(item.bytes.slice(0)).promise;
       const autoGroupId = pdf.numPages > 1 ? 'g_' + id : null;
       const origin = findNextGroupOrigin();
       for (let p = 1; p <= pdf.numPages; p++) {
@@ -4943,7 +4957,7 @@ async function renderViewerMainPage(file, entry, canvas) {
 
   try {
     if (!file._viewerPdf) {
-      file._viewerPdf = pdfjsLib.getDocument({ data: file.bytes.slice(0) }).promise;
+      file._viewerPdf = loadPdfDoc(file.bytes.slice(0)).promise;
     }
     const pdf = await file._viewerPdf;
     if (seq !== _viewerRenderSeq) return;
@@ -5518,7 +5532,7 @@ function actPastePages(targetGroupId = null) {
       const exists = state.files.some(f => f.id === clipFile.id);
       if (!exists && clipFile.bytes) {
         fileAddPromises.push(
-          pdfjsLib.getDocument({ data: clipFile.bytes.slice(0) }).promise.then(pdf => {
+          loadPdfDoc(clipFile.bytes.slice(0)).promise.then(pdf => {
             state.files.push({ ...clipFile, pdf });
           }).catch(e => console.warn('ファイル追加失敗:', e))
         );
@@ -11358,7 +11372,7 @@ async function restoreStateFromSnapshot(snap) {
     const f = snap.files[i];
     const newId = idRemap[i].newId;
     try {
-      const pdf = await pdfjsLib.getDocument({ data: f.bytes.slice(0) }).promise;
+      const pdf = await loadPdfDoc(f.bytes.slice(0)).promise;
       state.files.push({ ...f, id: newId, pdf, lastModified: f.lastModified || snap.savedAt || Date.now() });
     } catch (e) {
       console.warn('PDF復元失敗:', f.name, e);
@@ -11374,7 +11388,7 @@ async function restoreStateFromSnapshot(snap) {
   if (snap.trash && Array.isArray(snap.trash)) {
     for (const t of snap.trash) {
       try {
-        const pdf = await pdfjsLib.getDocument({ data: t.file.bytes.slice(0) }).promise;
+        const pdf = await loadPdfDoc(t.file.bytes.slice(0)).promise;
         const newId = 'f_' + crypto.randomUUID().replace(/-/g,'');
         const fixedPages = (t.pages || []).map(p => ({...p, fileId: newId}));
         trash.push({ file: { ...t.file, id: newId, pdf }, pages: fixedPages });
@@ -11406,8 +11420,8 @@ async function restoreFolderSnapshot(snap) {
   pageThumbCache.clear();
   for (const f of (snap.files || [])) {
     try {
-      const pdf = await pdfjsLib.getDocument({ data: f.bytes.slice(0) }).promise;
-      const vPdf = pdfjsLib.getDocument({ data: f.bytes.slice(0) }).promise;
+      const pdf = await loadPdfDoc(f.bytes.slice(0)).promise;
+      const vPdf = loadPdfDoc(f.bytes.slice(0)).promise;
       state.files.push({ ...f, pdf, _viewerPdf: vPdf, lastModified: f.lastModified || Date.now() });
     } catch(e) { console.warn('フォルダ復元失敗:', f.name, e); }
   }
@@ -11417,7 +11431,7 @@ async function restoreFolderSnapshot(snap) {
   trash.length = 0;
   for (const t of (snap.trash || [])) {
     try {
-      const pdf = await pdfjsLib.getDocument({ data: t.file.bytes.slice(0) }).promise;
+      const pdf = await loadPdfDoc(t.file.bytes.slice(0)).promise;
       trash.push({ file: { ...t.file, pdf }, pages: (t.pages || []).map(p => ({...p})) });
     } catch(_) {}
   }
