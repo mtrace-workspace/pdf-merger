@@ -9134,6 +9134,16 @@ function buildAnnPanel() {
       state.fillOpacity = 0.3;
       fillOpacityRow.querySelector('input[type=range]').value = 30;
       fillOpacityRow.querySelector('span').textContent = '30%';
+    } else if (state.fill === 'fill') {
+      // 「塗りつぶし」は既定で不透明（=完全に隠せる）。
+      // 以前semi等で下げた透明度が残っていると白くしても下地が透けるため100%に戻す。
+      if (state.fillOpacity < 1.0) {
+        state.fillOpacity = 1.0;
+        const rng = fillOpacityRow.querySelector('input[type=range]');
+        const sp = fillOpacityRow.querySelector('span');
+        if (rng) rng.value = 100;
+        if (sp) sp.textContent = '100%';
+      }
     }
     annApplyToSelected({ fill: state.fill, fillOpacity: state.fillOpacity });
   });
