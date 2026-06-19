@@ -10025,9 +10025,10 @@ function generateTextStampCanvas(text, shape, color, font, borderWidth) {
 // ── PDF出力時の注釈レイヤー生成 ────────────────────
 // 指定エントリ(ページ)の注釈レイヤーを透明背景PNGとして返す
 // outScale: 出力解像度（注釈座標は state.viewerScale 基準）
-async function renderAnnotationLayerForEntry(entry, outScale = 4.0) {
+async function renderAnnotationLayerForEntry(entry, outScale = 4.0, skipIds = null) {
   if (!entry || !entry.uid) return null;
-  const annotations = state.annotations[entry.uid] || [];
+  let annotations = state.annotations[entry.uid] || [];
+  if (skipIds && skipIds.size) annotations = annotations.filter(a => !skipIds.has(a.id));
   if (annotations.length === 0) return null;
 
   // ── 注釈は「ビューア表示時の座標系」で保存されている。
@@ -10125,20 +10126,55 @@ async function waitForStampImages() {
   }));
 }
 
+// '#rrggbb' → {r,g,b}（0〜1）
+function hexToRgb01(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return { r: 1, g: 1, b: 1 };
+  const n = parseInt(m[1], 16);
+  return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
+}
+
 // PDFのページに注釈レイヤーを焼き込む
 // pdfLibPage: pdf-lib の PDFPage、entry: ページエントリ、outDoc: 出力中のPDFDocument
 async function bakeAnnotationsIntoPage(pdfLibPage, entry, outDoc) {
   const annotations = state.annotations[entry.uid] || [];
   if (annotations.length === 0) return;
   try {
-    const dataUrl = await renderAnnotationLayerForEntry(entry, 4.0);
-    if (!dataUrl) return;
-    const pngImage = await outDoc.embedPng(dataUrl);
-    const { width: pw, height: ph } = pdfLibPage.getSize();
-    pdfLibPage.drawImage(pngImage, {
-      x: 0, y: 0,
-      width: pw, height: ph,
-    });
+    // ── 不透明・枠なしの塗り矩形は「ベクター矩形」で直接描画する ──
+    // ラスタ注釈レイヤー(透明PNG)は縮小合成で縁が半透明になり、下地(線)が透けて
+    // 細い線として残る。ベクター描画なら下地を完全に置き換えられる。
+    const skipIds = new Set();
+    const file = state.files.find(f => f.id === entry.fileId);
+    if (file && PDFLib.rgb) {
+      const page = await file.pdf.getPage(entry.pageNum);
+      const rotation = (((page.rotate || 0) + (entry.rotation || 0)) % 360 + 360) % 360;
+      let viewerScale = entry._viewerScale;
+      if (!viewerScale) { const b = page.getViewport({ scale: 1 }); viewerScale = Math.min(2.5, 1100 / b.height); }
+      const rotatedVp = page.getViewport({ scale: viewerScale, rotation });
+      for (const a of annotations) {
+        if (a._editing || a.type !== 'rect' || a.rotation) continue;
+        if (!(a.fill === 'fill' || a.fill === 'semi')) continue;
+        const opacity = a.fillOpacity !== undefined ? a.fillOpacity : (a.fill === 'semi' ? 0.3 : 1.0);
+        if (opacity !== 1) continue;
+        const noStroke = !a.color || a.color === 'transparent' || a.width === 0;
+        if (!noStroke) continue;
+        // 表示座標(viewerScale,回転後) → PDF生座標
+        const c1 = rotatedVp.convertToPdfPoint(a.x, a.y);
+        const c2 = rotatedVp.convertToPdfPoint(a.x + a.w, a.y + a.h);
+        const x = Math.min(c1[0], c2[0]), y = Math.min(c1[1], c2[1]);
+        const w = Math.abs(c2[0] - c1[0]), h = Math.abs(c2[1] - c1[1]);
+        const col = hexToRgb01(a.fillColor || '#ffffff');
+        pdfLibPage.drawRectangle({ x, y, width: w, height: h, color: PDFLib.rgb(col.r, col.g, col.b) });
+        skipIds.add(a.id);
+      }
+    }
+    // 残りの注釈はラスタレイヤーとして上に重ねる
+    const dataUrl = await renderAnnotationLayerForEntry(entry, 4.0, skipIds);
+    if (dataUrl) {
+      const pngImage = await outDoc.embedPng(dataUrl);
+      const { width: pw, height: ph } = pdfLibPage.getSize();
+      pdfLibPage.drawImage(pngImage, { x: 0, y: 0, width: pw, height: ph });
+    }
   } catch (e) {
     console.warn('注釈の焼き込みに失敗:', e);
   }
