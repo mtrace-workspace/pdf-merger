@@ -7248,6 +7248,13 @@ function annDraw(ctx, a) {
       ctx.fillStyle = a.fillColor || a.color;
       ctx.globalAlpha = opacity;
       ctx.fillRect(a.x, a.y, a.w, a.h);
+      // 不透明＆枠なしの塗りは、小数座標のアンチエイリアスで縁が半透明になり
+      // 下地が透けて細い線に見えるため、同色の細枠でエッジを潰す
+      if (opacity === 1 && noStroke) {
+        ctx.strokeStyle = a.fillColor || a.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(a.x, a.y, a.w, a.h);
+      }
       ctx.restore();
     }
     if (!noStroke) {
@@ -7268,6 +7275,7 @@ function annDraw(ctx, a) {
       ctx.fillStyle = a.fillColor || a.color;
       ctx.globalAlpha = opacity;
       ctx.fill();
+      if (opacity === 1 && noStroke) { ctx.strokeStyle = a.fillColor || a.color; ctx.lineWidth = 1; ctx.stroke(); }
       ctx.restore();
     }
     if (!noStroke) { ctx.stroke(); }
@@ -7286,6 +7294,7 @@ function annDraw(ctx, a) {
       ctx.fillStyle = a.fillColor || a.color;
       ctx.globalAlpha = opacity;
       ctx.fill();
+      if (opacity === 1 && noStroke) { ctx.strokeStyle = a.fillColor || a.color; ctx.lineWidth = 1; ctx.stroke(); }
       ctx.restore();
     }
     if (!noStroke) { ctx.stroke(); }
@@ -7489,11 +7498,18 @@ function annDraw(ctx, a) {
         ctx.restore();
       }
     }
-    ctx.strokeStyle = a.color;
-    ctx.lineWidth = a.width || 2;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    ctx.stroke();
+    if (isOpen || !noStroke) {
+      // 折れ線は常に線を描く。多角形は枠なし(width0)なら枠を描かない。
+      ctx.strokeStyle = a.color;
+      ctx.lineWidth = a.width || 2;
+      ctx.stroke();
+    } else if (a.fill === 'fill' || a.fill === 'semi') {
+      // 枠なし塗り多角形：不透明時はエッジの半透明線を同色で潰す
+      const opacity = a.fillOpacity !== undefined ? a.fillOpacity : (a.fill === 'semi' ? 0.3 : 1.0);
+      if (opacity === 1) { ctx.strokeStyle = a.fillColor || a.color; ctx.lineWidth = 1; ctx.stroke(); }
+    }
     ctx.restore();
   }
 }
