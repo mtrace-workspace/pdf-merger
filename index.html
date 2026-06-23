@@ -3180,6 +3180,39 @@ async function prebakeAllThumbs(items) {
   }
 }
 
+// ボード用サムネの共通描画：中央を少し食い込ませて白余白をトリミングし「中身に寄せた」サムネを返す。
+// prebake と即時描画(renderPageThumbnailNow) の両方で使い、全ページのサムネの向き・寸法を一致させる。
+async function renderCroppedThumb(page, rotation) {
+  const boost = 1.3;
+  const baseVp = page.getViewport({ scale: 1, rotation });
+  const scale = Math.min(270 / baseVp.width, 240 / baseVp.height) * boost;
+  const viewport = page.getViewport({ scale, rotation });
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = Math.round(viewport.width);
+  offCanvas.height = Math.round(viewport.height);
+  const ctx = offCanvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, offCanvas.width, offCanvas.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  // 中央部分をboost前のサイズで切り出す（余白を食い込ませる）
+  const tw = Math.round(offCanvas.width / boost);
+  const th = Math.round(offCanvas.height / boost);
+  const tx = Math.round((offCanvas.width - tw) / 2);
+  const ty = Math.round((offCanvas.height - th) / 2);
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = tw; cropCanvas.height = th;
+  cropCanvas.getContext('2d').drawImage(offCanvas, tx, ty, tw, th, 0, 0, tw, th);
+  // 白余白を非同期トリミング
+  const cropped = await cropWhiteAsync(cropCanvas.getContext('2d'), cropCanvas.width, cropCanvas.height);
+  let finalCanvas = cropCanvas;
+  if (cropped) {
+    finalCanvas = document.createElement('canvas');
+    finalCanvas.width = cropped.w; finalCanvas.height = cropped.h;
+    finalCanvas.getContext('2d').drawImage(cropCanvas, cropped.x, cropped.y, cropped.w, cropped.h, 0, 0, cropped.w, cropped.h);
+  }
+  return { dataUrl: finalCanvas.toDataURL('image/jpeg', 0.85), w: finalCanvas.width, h: finalCanvas.height };
+}
+
 async function prebakePage(item, pageNum) {
   const dbKey = fileThumbKey(item, pageNum, 0);
   const memKey = `${item.id}_${pageNum}_r0`;
@@ -3204,36 +3237,8 @@ async function prebakePage(item, pageNum) {
   }
   try {
     const page = await item.pdf.getPage(pageNum);
-    const baseVp = page.getViewport({ scale: 1 });
-    // 1.3倍で描画して中央部分だけ切り出す（マージンを食い込ませる）
-    const boost = 1.3;
-    const scale = Math.min(270 / baseVp.width, 240 / baseVp.height) * boost;
-    const viewport = page.getViewport({ scale });
-    const offCanvas = document.createElement('canvas');
-    offCanvas.width = Math.round(viewport.width);
-    offCanvas.height = Math.round(viewport.height);
-    const ctx = offCanvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, offCanvas.width, offCanvas.height);
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    // 中央部分をboost前のサイズで切り出す
-    const tw = Math.round(offCanvas.width / boost);
-    const th = Math.round(offCanvas.height / boost);
-    const tx = Math.round((offCanvas.width - tw) / 2);
-    const ty = Math.round((offCanvas.height - th) / 2);
-    const cropCanvas = document.createElement('canvas');
-    cropCanvas.width = tw; cropCanvas.height = th;
-    cropCanvas.getContext('2d').drawImage(offCanvas, tx, ty, tw, th, 0, 0, tw, th);
-    // 白余白をawaitで非同期トリミング（UIブロックなし）
-    const cropped = await cropWhiteAsync(cropCanvas.getContext('2d'), cropCanvas.width, cropCanvas.height);
-    let finalCanvas = cropCanvas;
-    if (cropped) {
-      finalCanvas = document.createElement('canvas');
-      finalCanvas.width = cropped.w; finalCanvas.height = cropped.h;
-      finalCanvas.getContext('2d').drawImage(cropCanvas, cropped.x, cropped.y, cropped.w, cropped.h, 0, 0, cropped.w, cropped.h);
-    }
-    const dataUrl = finalCanvas.toDataURL('image/jpeg', 0.85);
-    const thumbW = finalCanvas.width, thumbH = finalCanvas.height;
+    const effRot = ((page.rotate || 0) % 360 + 360) % 360;
+    const { dataUrl, w: thumbW, h: thumbH } = await renderCroppedThumb(page, effRot);
     pageThumbCache.set(memKey, { dataUrl, w: thumbW, h: thumbH });
     saveThumbToDB(dbKey, dataUrl);
     applyThumbToCard(item.id, pageNum, 0, dataUrl, thumbW, thumbH);
@@ -3973,7 +3978,20 @@ async function renderPageThumbnailNow(file, pageNum, canvas, rotation = 0) {
     const page = await file.pdf.getPage(pageNum);
     // PDF固有の回転(/Rotate)＋ユーザー回転を合算（固有回転を無視すると向きが崩れる）
     const effRot = (((page.rotate || 0) + (rotation || 0)) % 360 + 360) % 360;
-    // カード幅固定(120px)に合わせて常に同じ横幅で描画
+    const entryUid = canvas.dataset.entryUid;
+    const anns = entryUid && state.annotations[entryUid];
+    const hasAnnsNow = anns && anns.length > 0;
+
+    if (!hasAnnsNow) {
+      // 注釈なし → prebakeと同じトリミング描画で全ページのサムネを統一（中身に寄せる）
+      const { dataUrl, w, h } = await renderCroppedThumb(page, effRot);
+      pageThumbCache.set(key, { dataUrl, w, h });
+      showAsImg(dataUrl, w, h);
+      saveThumbToDB(dbKey, dataUrl);
+      return;
+    }
+
+    // 注釈あり → 注釈オーバーレイの座標基準を保つためフルページ（トリミングなし）で描画
     const baseVp = page.getViewport({ scale: 1, rotation: effRot });
     const scale = Math.min(108 / baseVp.width, 300 / baseVp.height);
     const viewport = page.getViewport({ scale, rotation: effRot });
@@ -3987,13 +4005,7 @@ async function renderPageThumbnailNow(file, pageNum, canvas, rotation = 0) {
     pageThumbCache.set(key, { dataUrl, w: offCanvas.width, h: offCanvas.height });
     showAsImg(dataUrl, offCanvas.width, offCanvas.height);
     saveThumbToDB(dbKey, dataUrl);
-
-    // 注釈があれば非同期で上書き
-    const entryUid = canvas.dataset.entryUid;
-    const anns = entryUid && state.annotations[entryUid];
-    if (anns && anns.length > 0) {
-      overlayAnnotationsOnThumb(canvas, file, page, dataUrl, offCanvas.width, offCanvas.height, scale, key, dbKey, entryUid, anns);
-    }
+    overlayAnnotationsOnThumb(canvas, file, page, dataUrl, offCanvas.width, offCanvas.height, scale, key, dbKey, entryUid, anns);
   } catch (e) {
     console.warn('ページサムネ生成失敗:', file?.name, pageNum, e);
   }
@@ -4413,18 +4425,11 @@ function openGroupExpansion(groupId) {
         const thumbPdf = await getThumbPdf(file);
         const page = await thumbPdf.getPage(p.pageNum);
         const rot = (((page.rotate || 0) + (p.rotation || 0)) % 360 + 360) % 360;
-        const baseVp2 = page.getViewport({ scale: 1, rotation: rot });
-        const scale = Math.min(270 / baseVp2.width, 240 / baseVp2.height);
-        const viewport = page.getViewport({ scale, rotation: rot });
-        const oc = document.createElement('canvas');
-        oc.width = Math.round(viewport.width); oc.height = Math.round(viewport.height);
-        const ctx = oc.getContext('2d');
-        ctx.clearRect(0, 0, oc.width, oc.height);
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        const dataUrl = oc.toDataURL('image/jpeg', 0.82);
-        pageThumbCache.set(memKey, { dataUrl, w: oc.width, h: oc.height });
+        // 他経路と同じトリミング描画で全ページのサムネを統一
+        const { dataUrl, w, h } = await renderCroppedThumb(page, rot);
+        pageThumbCache.set(memKey, { dataUrl, w, h });
         saveThumbToDB(dbKey, dataUrl);
-        applyThumbToCard(file.id, p.pageNum, p.rotation || 0, dataUrl, oc.width, oc.height);
+        applyThumbToCard(file.id, p.pageNum, p.rotation || 0, dataUrl, w, h);
       } catch(e) {}
     })();
   });
@@ -5628,9 +5633,15 @@ function actPastePages(targetGroupId = null, insertBeforeUid = null) {
       }
     }
   });
-  // ビューアが開いていたら再レンダリング
-  if (targetGroupId && state.expandedGroupId === targetGroupId) {
-    renderExpansionModal(true);
+  // ビューア表示中のペーストは、操作していたページ(insertBeforeUid)へ追従させる。
+  // → 挿入で現在ページがずれても先頭へ飛ばさない。再レンダリングは呼び出し側で1回だけ行う
+  //   （ここで再レンダリングすると二重実行になりスクロールが先頭に戻る）。
+  if (insertBeforeUid && state.expandedGroupId && typeof getExpandedMembers === 'function') {
+    const mem = getExpandedMembers();
+    if (mem) {
+      const idx = mem.findIndex(m => m.p && m.p.uid === insertBeforeUid);
+      if (idx >= 0) state.viewerMemberIdx = idx;
+    }
   }
   scheduleSave();
   if (typeof statusText !== 'undefined') statusText.textContent = `${pageClipboard.length}ページをペーストしました`;
@@ -11330,8 +11341,8 @@ function tryCopyPageToFolder(pageData, targetFolderId) {
 
 // ファイルのハッシュキー（name+size+lastModified）
 function fileThumbKey(file, pageNum, rotation) {
-  // _s3: PDF固有回転(/Rotate)を反映する描画修正に伴いキャッシュを無効化
-  return `${file.name}_${file.size}_${file.lastModified}_p${pageNum}_r${rotation}_s3`;
+  // _s4: サムネをページ実寸（白余白トリミングなし）に統一したためキャッシュを無効化
+  return `${file.name}_${file.size}_${file.lastModified}_p${pageNum}_r${rotation}_s4`;
 }
 
 // サムネをIndexedDBに保存
