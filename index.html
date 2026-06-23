@@ -5520,7 +5520,7 @@ function actCopyPages() {
   if (typeof statusText !== 'undefined') statusText.textContent = `${pageClipboard.length}ページをコピーしました`;
 }
 
-function actPastePages(targetGroupId = null) {
+function actPastePages(targetGroupId = null, insertBeforeUid = null) {
   if (pageClipboard.length === 0) return;
   const newIdxs = [];
   const newEntries = [];
@@ -5548,6 +5548,13 @@ function actPastePages(targetGroupId = null) {
     }
   });
 
+  // 挿入位置：insertBeforeUid 指定時はそのページの直前へ順次挿入
+  let seqInsert = null;
+  if (insertBeforeUid) {
+    const ti = state.pageOrder.findIndex(p => p.uid === insertBeforeUid);
+    if (ti >= 0) seqInsert = ti;
+  }
+
   pageClipboard.forEach(original => {
     const newUid = 'pg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     // ペースト先グループ指定がある場合はそこへ、なければ束構造を維持
@@ -5564,8 +5571,16 @@ function actPastePages(targetGroupId = null) {
     if (state.annotations[original.uid]) {
       state.annotations[newUid] = state.annotations[original.uid].map(a => ({ ...deepCloneAnnotation(a), id: Date.now() + Math.random() }));
     }
-    // targetGroupId指定時は束の末尾に挿入（束内の順序を保つ）
-    if (targetGroupId !== null && newGroupId) {
+    // 挿入位置の決定：
+    //  1. insertBeforeUid指定時 → 選択ページの直前へ順次挿入（クリップボード順を保持）
+    //  2. targetGroupId指定時 → 束の末尾に挿入
+    //  3. それ以外 → pageOrderの末尾
+    if (seqInsert !== null) {
+      state.pageOrder.splice(seqInsert, 0, copy);
+      newIdxs.push(seqInsert);
+      newEntries.push({ entry: copy, original });
+      seqInsert++;
+    } else if (targetGroupId !== null && newGroupId) {
       let insertAt = state.pageOrder.length;
       for (let i = state.pageOrder.length - 1; i >= 0; i--) {
         if (state.pageOrder[i].groupId === newGroupId) { insertAt = i + 1; break; }
@@ -6198,7 +6213,14 @@ document.addEventListener('keydown', e => {
     if (pageClipboard.length > 0) {
       e.preventDefault();
       const groupId = state.expandedGroupId || null;
-      actPastePages(groupId);
+      // ビューア表示中は現在ページの直前に挿入
+      let beforeUid = null;
+      if (state.expandedGroupId) {
+        const members = getExpandedMembers();
+        const m = members[state.viewerMemberIdx];
+        beforeUid = m ? m.p.uid : null;
+      }
+      actPastePages(groupId, beforeUid);
       if (state.expandedGroupId) renderExpansionModal(true);
       return;
     }
@@ -10447,10 +10469,11 @@ function showViewerContextMenu(e, memberIdx) {
       label: 'ペースト',
       icon: CTX_ICONS.copy,
       action: () => {
-        // 同じ束の末尾にペースト
+        // 選択中ページの直前に挿入（同じ束に取り込む）
         const m = members[memberIdx];
         const groupId = m ? m.p.groupId : null;
-        actPastePages(groupId);
+        const beforeUid = m ? m.p.uid : null;
+        actPastePages(groupId, beforeUid);
         // ビューアを再レンダリング
         renderExpansionModal(true);
       },
