@@ -3760,33 +3760,45 @@ function startGroupNameEdit(labelEl, groupId, fileName) {
 // ぶつかった順（Y→X）で出力順を決める
 function computeOrderRank() {
   const rank = new Map();
-  // 含まれているページだけ対象
+  // 含まれているページだけ対象（pageOrderの並び順を保持）
   const included = state.pageOrder
     .map((p, i) => ({ p, i }))
     .filter(({ p }) => p.included);
-  // ROW_TOLERANCE 以内のYは「同じ行」とみなす
+
+  // 「単位(unit)」を構築する：
+  //  - 束(groupId)は1単位にまとめ、束内のページ順は pageOrder の並び順をそのまま使う
+  //    （ビューアでの並べ替え・ペーストはpageOrderを変える。各ページのx/yに依存させない）
+  //  - 非束ページは各ページが1単位
+  // 単位の位置は「束内で最初に出現するメンバー（=代表）」のx/yを使う。
+  const groupUnits = new Map();
+  const units = [];
+  for (const it of included) {
+    const gid = it.p.groupId;
+    if (gid) {
+      let u = groupUnits.get(gid);
+      if (!u) { u = { x: it.p.x || 0, y: it.p.y || 0, items: [] }; groupUnits.set(gid, u); units.push(u); }
+      u.items.push(it); // pageOrder順で追加される
+    } else {
+      units.push({ x: it.p.x || 0, y: it.p.y || 0, items: [it] });
+    }
+  }
+
+  // 単位をボードの読み順（行=Y → 列=X）で並べる
   const ROW_TOLERANCE = 40;
-  // まず Y で大雑把にソート
-  included.sort((a, b) => (a.p.y || 0) - (b.p.y || 0));
-  // 行ごとにグループ化
+  units.sort((a, b) => (a.y - b.y) || (a.x - b.x));
   const rows = [];
-  for (const item of included) {
+  for (const u of units) {
     let placed = false;
     for (const row of rows) {
-      const rowY = row[0].p.y || 0;
-      if (Math.abs((item.p.y || 0) - rowY) < ROW_TOLERANCE) {
-        row.push(item);
-        placed = true;
-        break;
-      }
+      if (Math.abs(u.y - row[0].y) < ROW_TOLERANCE) { row.push(u); placed = true; break; }
     }
-    if (!placed) rows.push([item]);
+    if (!placed) rows.push([u]);
   }
-  // 各行内をXでソート
-  rows.forEach(row => row.sort((a, b) => (a.p.x || 0) - (b.p.x || 0)));
-  // 連番付与
+  rows.forEach(row => row.sort((a, b) => a.x - b.x));
+
+  // 連番付与（単位順 → 単位内は pageOrder 順）
   let n = 1;
-  rows.forEach(row => row.forEach(({ i }) => rank.set(i, n++)));
+  rows.forEach(row => row.forEach(u => u.items.forEach(({ i }) => rank.set(i, n++))));
   return rank;
 }
 
