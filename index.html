@@ -3181,12 +3181,13 @@ async function prebakeAllThumbs(items) {
   }
 }
 
-// ボード用サムネの共通描画：中央を少し食い込ませて白余白をトリミングし「中身に寄せた」サムネを返す。
-// prebake と即時描画(renderPageThumbnailNow) の両方で使い、全ページのサムネの向き・寸法を一致させる。
+// サムネの共通描画：ページ全体を実寸の縦横比のまま描く（トリミングなし）。
+// 「元のページに合わせた向き・形」で、ボード・ビューアの全経路を統一する。
+// rotation は PDF固有回転(/Rotate)＋ユーザー回転の合算値。
 async function renderCroppedThumb(page, rotation) {
-  const boost = 1.3;
   const baseVp = page.getViewport({ scale: 1, rotation });
-  const scale = Math.min(270 / baseVp.width, 240 / baseVp.height) * boost;
+  // カード幅120px(中身108px)の約2倍解像度で描画して縮小表示時もくっきり
+  const scale = Math.min(216 / baseVp.width, 600 / baseVp.height);
   const viewport = page.getViewport({ scale, rotation });
   const offCanvas = document.createElement('canvas');
   offCanvas.width = Math.round(viewport.width);
@@ -3195,23 +3196,7 @@ async function renderCroppedThumb(page, rotation) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, offCanvas.width, offCanvas.height);
   await page.render({ canvasContext: ctx, viewport }).promise;
-  // 中央部分をboost前のサイズで切り出す（余白を食い込ませる）
-  const tw = Math.round(offCanvas.width / boost);
-  const th = Math.round(offCanvas.height / boost);
-  const tx = Math.round((offCanvas.width - tw) / 2);
-  const ty = Math.round((offCanvas.height - th) / 2);
-  const cropCanvas = document.createElement('canvas');
-  cropCanvas.width = tw; cropCanvas.height = th;
-  cropCanvas.getContext('2d').drawImage(offCanvas, tx, ty, tw, th, 0, 0, tw, th);
-  // 白余白を非同期トリミング
-  const cropped = await cropWhiteAsync(cropCanvas.getContext('2d'), cropCanvas.width, cropCanvas.height);
-  let finalCanvas = cropCanvas;
-  if (cropped) {
-    finalCanvas = document.createElement('canvas');
-    finalCanvas.width = cropped.w; finalCanvas.height = cropped.h;
-    finalCanvas.getContext('2d').drawImage(cropCanvas, cropped.x, cropped.y, cropped.w, cropped.h, 0, 0, cropped.w, cropped.h);
-  }
-  return { dataUrl: finalCanvas.toDataURL('image/jpeg', 0.85), w: finalCanvas.width, h: finalCanvas.height };
+  return { dataUrl: offCanvas.toDataURL('image/jpeg', 0.85), w: offCanvas.width, h: offCanvas.height };
 }
 
 // 同一キーのサムネ生成を1本にまとめる（prebake/即時描画/ビューア一括の3経路が
@@ -11383,8 +11368,8 @@ function tryCopyPageToFolder(pageData, targetFolderId) {
 
 // ファイルのハッシュキー（name+size+lastModified）
 function fileThumbKey(file, pageNum, rotation) {
-  // _s4: サムネをページ実寸（白余白トリミングなし）に統一したためキャッシュを無効化
-  return `${file.name}_${file.size}_${file.lastModified}_p${pageNum}_r${rotation}_s4`;
+  // _s5: サムネをページ実寸（トリミングなし・全経路統一）に変更したためキャッシュを無効化
+  return `${file.name}_${file.size}_${file.lastModified}_p${pageNum}_r${rotation}_s5`;
 }
 
 // サムネをIndexedDBに保存
