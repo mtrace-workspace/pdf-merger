@@ -1076,6 +1076,11 @@
     display: block;
     width: 100%;
     height: auto;
+    /* 極端な縦長ページ（縦長画像由来のPDF等）でもカードが伸びすぎないよう上限。
+       通常のA4縦(約153px)には影響しない。縦長ページは全体が縮小されて収まる */
+    max-height: 240px;
+    object-fit: contain;
+    object-position: top center;
   }
   .page-card-info {
     font-family: var(--mono);
@@ -1453,6 +1458,10 @@
     max-width: 100%;
     height: auto;
     display: block;
+    /* 極端な縦長ページでもサムネ欄が伸びすぎないよう上限（通常ページには影響なし） */
+    max-height: 200px;
+    object-fit: contain;
+    object-position: top center;
   }
   .viewer-thumb-label {
     font-family: var(--mono);
