@@ -2396,7 +2396,7 @@
   </div>
   <div style="display:flex;align-items:center;gap:12px;">
     <!-- ビルド版数：どの版が動いているかの確認用（修正のたびに更新） -->
-    <span id="app-build" style="font-family:var(--mono);font-size:9px;color:var(--muted);opacity:0.7;">build 2026-07-02.1</span>
+    <span id="app-build" style="font-family:var(--mono);font-size:9px;color:var(--muted);opacity:0.7;">build 2026-07-02.2</span>
     <div id="output-info">出力なし</div>
   </div>
 </footer>
@@ -5938,7 +5938,24 @@ async function exportMerged() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `merged_${new Date().toISOString().slice(0,10).replace(/-/g,'')}.pdf`;
+    // 出力ファイル名は元ファイル名を引き継ぐ：
+    //  - 1つの束でカスタム名あり → 束名.pdf
+    //  - 1ファイル由来 → そのファイル名
+    //  - 複数ファイル → 先頭ファイル名_結合.pdf
+    let outName = `merged_${new Date().toISOString().slice(0,10).replace(/-/g,'')}.pdf`;
+    const targetEntries = orderedIdxs.map(i => state.pageOrder[i]).filter(e => e && e.included);
+    const srcFileIds = [...new Set(targetEntries.map(e => e.fileId))];
+    const srcGroupIds = [...new Set(targetEntries.map(e => e.groupId).filter(Boolean))];
+    if (srcGroupIds.length === 1 && targetEntries.every(e => e.groupId === srcGroupIds[0]) && state.groupNames[srcGroupIds[0]]) {
+      outName = state.groupNames[srcGroupIds[0]].replace(/\.pdf$/i, '') + '.pdf';
+    } else if (srcFileIds.length === 1) {
+      const srcF = state.files.find(x => x.id === srcFileIds[0]);
+      if (srcF && srcF.name) outName = srcF.name.replace(/\.pdf$/i, '') + '.pdf';
+    } else if (srcFileIds.length > 1) {
+      const srcF = state.files.find(x => x.id === srcFileIds[0]);
+      if (srcF && srcF.name) outName = srcF.name.replace(/\.[^.]+$/, '') + '_結合.pdf';
+    }
+    a.download = outName;
     a.click();
     URL.revokeObjectURL(url);
     statusText.textContent = `結合完了（${outDoc.getPageCount()}ページ）`;
