@@ -3214,13 +3214,31 @@ async function renderCroppedThumb(page, rotation) {
   return { dataUrl: finalCanvas.toDataURL('image/jpeg', 0.85), w: finalCanvas.width, h: finalCanvas.height };
 }
 
+// 同一キーのサムネ生成を1本にまとめる（prebake/即時描画/ビューア一括の3経路が
+// 同時に同じページを描画してキャッシュ書き込みが競合し、チラつく問題を防ぐ）
+const thumbGenInflight = new Map(); // key -> Promise<{dataUrl,w,h}>
+function generateThumbOnce(key, getPageFn, userRot) {
+  let p = thumbGenInflight.get(key);
+  if (p) return p;
+  p = (async () => {
+    const page = await getPageFn();
+    const effRot = (((page.rotate || 0) + (userRot || 0)) % 360 + 360) % 360;
+    return await renderCroppedThumb(page, effRot);
+  })();
+  thumbGenInflight.set(key, p);
+  p.then(() => thumbGenInflight.delete(key), () => thumbGenInflight.delete(key));
+  return p;
+}
+
 async function prebakePage(item, pageNum) {
   const dbKey = fileThumbKey(item, pageNum, 0);
   const memKey = `${item.id}_${pageNum}_r0`;
   if (pageThumbCache.has(memKey)) {
+    // キャッシュ値は {dataUrl,w,h} だが、旧形式（生文字列）にも耐える
     const c = pageThumbCache.get(memKey);
-    applyThumbToCard(item.id, pageNum, 0, c.dataUrl, c.w, c.h);
-    saveThumbToDB(dbKey, c.dataUrl);
+    const dUrl = c.dataUrl || c;
+    applyThumbToCard(item.id, pageNum, 0, dUrl, c.w || 0, c.h || 0);
+    saveThumbToDB(dbKey, dUrl);
     return;
   }
   const existing = await loadThumbFromDB(dbKey);
@@ -3237,9 +3255,7 @@ async function prebakePage(item, pageNum) {
     return;
   }
   try {
-    const page = await item.pdf.getPage(pageNum);
-    const effRot = ((page.rotate || 0) % 360 + 360) % 360;
-    const { dataUrl, w: thumbW, h: thumbH } = await renderCroppedThumb(page, effRot);
+    const { dataUrl, w: thumbW, h: thumbH } = await generateThumbOnce(memKey, () => item.pdf.getPage(pageNum), 0);
     pageThumbCache.set(memKey, { dataUrl, w: thumbW, h: thumbH });
     saveThumbToDB(dbKey, dataUrl);
     applyThumbToCard(item.id, pageNum, 0, dataUrl, thumbW, thumbH);
@@ -3997,7 +4013,8 @@ async function renderPageThumbnailNow(file, pageNum, canvas, rotation = 0) {
 
     if (!hasAnnsNow) {
       // 注釈なし → prebakeと同じトリミング描画で全ページのサムネを統一（中身に寄せる）
-      const { dataUrl, w, h } = await renderCroppedThumb(page, effRot);
+      // 同一キーの生成は generateThumbOnce で1本化（並行描画の競合・チラつき防止）
+      const { dataUrl, w, h } = await generateThumbOnce(key, () => Promise.resolve(page), rotation);
       pageThumbCache.set(key, { dataUrl, w, h });
       showAsImg(dataUrl, w, h);
       saveThumbToDB(dbKey, dataUrl);
@@ -4434,12 +4451,24 @@ function openGroupExpansion(groupId) {
       try {
         const dbKey = fileThumbKey(file, p.pageNum, p.rotation || 0);
         const db = await loadThumbFromDB(dbKey);
-        if (db) { pageThumbCache.set(memKey, db); applyThumbToCard(file.id, p.pageNum, p.rotation || 0, db); return; }
-        const thumbPdf = await getThumbPdf(file);
-        const page = await thumbPdf.getPage(p.pageNum);
-        const rot = (((page.rotate || 0) + (p.rotation || 0)) % 360 + 360) % 360;
-        // 他経路と同じトリミング描画で全ページのサムネを統一
-        const { dataUrl, w, h } = await renderCroppedThumb(page, rot);
+        if (db) {
+          // DBは dataUrl 文字列のみ保存 → 寸法をprobeして必ず {dataUrl,w,h} 形式でキャッシュ
+          // （生文字列を入れると c.dataUrl 参照の経路で undefined になりサムネが消える）
+          const dims = await new Promise(resolve => {
+            const im = new Image();
+            im.onload = () => resolve({ w: im.naturalWidth, h: im.naturalHeight });
+            im.onerror = () => resolve({ w: 0, h: 0 });
+            im.src = db;
+          });
+          pageThumbCache.set(memKey, { dataUrl: db, ...dims });
+          applyThumbToCard(file.id, p.pageNum, p.rotation || 0, db, dims.w, dims.h);
+          return;
+        }
+        // 他経路と同じトリミング描画・同一キーは1回だけ生成
+        const { dataUrl, w, h } = await generateThumbOnce(memKey, async () => {
+          const thumbPdf = await getThumbPdf(file);
+          return thumbPdf.getPage(p.pageNum);
+        }, p.rotation || 0);
         pageThumbCache.set(memKey, { dataUrl, w, h });
         saveThumbToDB(dbKey, dataUrl);
         applyThumbToCard(file.id, p.pageNum, p.rotation || 0, dataUrl, w, h);
