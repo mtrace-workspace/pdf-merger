@@ -2396,7 +2396,7 @@
   </div>
   <div style="display:flex;align-items:center;gap:12px;">
     <!-- ビルド版数：どの版が動いているかの確認用（修正のたびに更新） -->
-    <span id="app-build" style="font-family:var(--mono);font-size:9px;color:var(--muted);opacity:0.7;">build 2026-07-02.3</span>
+    <span id="app-build" style="font-family:var(--mono);font-size:9px;color:var(--muted);opacity:0.7;">build 2026-07-02.4</span>
     <div id="output-info">出力なし</div>
   </div>
 </footer>
@@ -2455,7 +2455,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
 // ── サムネ用 PDF.js workerプール ─────────────────────
 // 各ファイルのbytesから独立したPDFDocumentを複数持ち、並列getPage/renderを実現
-const THUMB_WORKER_COUNT = 6;
+// ※ 1ファイルあたり本体+ビューア用も含め複数ドキュメントを保持するため、
+//   プール数はメモリと相談（6→3に削減。同一ドキュメントでも複数ページの並列renderは可能）
+const THUMB_WORKER_COUNT = 3;
 const thumbWorkerPool = []; // { pdf, busy } の配列 (ファイルごとに動的生成)
 
 // ファイルのbytesから独立したPDFインスタンスを複数生成するキャッシュ
@@ -3887,7 +3889,7 @@ function enqueueThumbRender(canvas, params, priority = false) {
 
 async function runThumbRenderQueue() {
   thumbRenderRunning = true;
-  const CONCURRENCY = THUMB_WORKER_COUNT; // workerプールと同数で並列処理
+  const CONCURRENCY = 6; // 描画の並列度（プール3ドキュメント×並列renderで従来スループットを維持）
   const RENDER_TIMEOUT = 10000;
   try {
     while (thumbRenderQueue.length > 0) {
@@ -11652,6 +11654,8 @@ function applyHistoryState(jsonStr) {
     if (state.expandedGroupId) {
       renderExpansionModal(true);
     }
+    // 適用後の状態を指紋に反映（次のtickで「新しい変更」と誤検知して履歴を汚さないように）
+    lastFingerprint = buildStateFingerprint();
     setTimeout(() => { isApplyingHistory = false; }, 50);
   } catch (e) {
     console.warn('履歴復元失敗:', e);
@@ -11687,6 +11691,32 @@ function updateHistoryButtons() {
   if (redoBtn) redoBtn.disabled = redoStack.length === 0;
 }
 
+// pageOrderの永続化対象プロパティのみを抽出（_viewerScaleなど一時プロパティを除外）
+function buildLightPo() {
+  return state.pageOrder.map(p => ({
+    uid: p.uid, fileId: p.fileId, pageNum: p.pageNum,
+    included: p.included, rotation: p.rotation,
+    groupId: p.groupId, x: p.x, y: p.y,
+  }));
+}
+
+// 変更検知用の軽量指紋：長い文字列（画像注釈のbase64等、数MBになりうる）は
+// 「長さ＋先頭/中間/末尾サンプル」に置換して文字列化コストを一定に抑える。
+// フル JSON.stringify を1.5秒ごとに回すと画像注釈があるだけで常時カクつくため。
+const fpReplacer = (k, v) =>
+  (typeof v === 'string' && v.length > 256)
+    ? `#${v.length}:${v.slice(0, 16)}:${v.slice(v.length >> 1, (v.length >> 1) + 16)}:${v.slice(-16)}`
+    : v;
+let lastFingerprint = '';
+function buildStateFingerprint() {
+  return JSON.stringify({
+    po: buildLightPo(),
+    ann: state.annotations,
+    gn: state.groupNames,
+    fileIds: state.files.map(f => f.id),
+  }, fpReplacer);
+}
+
 // 1.5秒ごとにチェック → 変更あれば履歴+保存
 setInterval(() => {
   if (state.files.length === 0) {
@@ -11699,21 +11729,18 @@ setInterval(() => {
     return;
   }
   try {
-    // pageOrderの永続化対象プロパティのみを抽出（_viewerScaleなど一時プロパティを除外）
-    const lightPo = state.pageOrder.map(p => ({
-      uid: p.uid, fileId: p.fileId, pageNum: p.pageNum,
-      included: p.included, rotation: p.rotation,
-      groupId: p.groupId, x: p.x, y: p.y,
-    }));
-    const lite = JSON.stringify({
-      po: lightPo,
-      ann: state.annotations,
-      gn: state.groupNames,
-      fileIds: state.files.map(f => f.id),
-    });
-    if (lite !== lastSnapshotJson) {
+    const fp = buildStateFingerprint();
+    if (fp !== lastFingerprint) {
+      lastFingerprint = fp;
+      // 実際に変更があった時だけ、履歴用のフルJSONを構築（重い処理はここに集約）
+      const lite = JSON.stringify({
+        po: buildLightPo(),
+        ann: state.annotations,
+        gn: state.groupNames,
+        fileIds: state.files.map(f => f.id),
+      });
       // 履歴を巻き戻している最中の変更は記録しない
-      if (!isApplyingHistory) {
+      if (!isApplyingHistory && lite !== lastSnapshotJson) {
         if (undoStack.length === 0) {
           undoStack.push(lite);
         } else {
@@ -11723,6 +11750,12 @@ setInterval(() => {
       }
       lastSnapshotJson = lite;
       scheduleSave();
+    }
+    // サムネのメモリキャッシュが増えすぎたら古いものから間引く（FIFO・無制限増殖の防止）
+    if (pageThumbCache.size > 800) {
+      const over = pageThumbCache.size - 600;
+      let n = 0;
+      for (const k of pageThumbCache.keys()) { pageThumbCache.delete(k); if (++n >= over) break; }
     }
   } catch (_) {}
 }, 1500);
